@@ -6,7 +6,8 @@ import Observation
 @MainActor @Observable
 public final class HostBrowser {
     public struct Host: Identifiable, Hashable {
-        public var id: String { name }
+        /// Presentationens fasta id (ur annonsen). Namnet kan ändras medan man delar.
+        public var id: String
         public var name: String
         public var endpoint: NWEndpoint
     }
@@ -14,17 +15,21 @@ public final class HostBrowser {
     public private(set) var hosts: [Host] = []
     public private(set) var problem: String?
     @ObservationIgnored private var browser: NWBrowser?
+    private let type: String
 
-    public init() {}
+    /// Standard: presentationer som delas. `Bonjour.tvType`: Apple TV-appar.
+    public init(type: String = Bonjour.type) { self.type = type }
 
     public func start() {
         guard browser == nil else { return }
-        let b = NWBrowser(for: .bonjour(type: Bonjour.type, domain: nil), using: Bonjour.parameters())
+        let b = NWBrowser(for: .bonjourWithTXTRecord(type: type, domain: nil), using: Bonjour.parameters())
         b.browseResultsChangedHandler = { [weak self] results, _ in
             MainActor.assumeIsolated {
                 self?.hosts = results.compactMap { r in
                     guard case .service(let name, _, _, _) = r.endpoint else { return nil }
-                    return Host(name: name, endpoint: r.endpoint)
+                    var key: String?
+                    if case .bonjour(let txt) = r.metadata { key = txt["id"] }
+                    return Host(id: key ?? name, name: name, endpoint: r.endpoint)
                 }.sorted { $0.name < $1.name }
             }
         }

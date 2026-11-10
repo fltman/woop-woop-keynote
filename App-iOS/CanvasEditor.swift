@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import SlideKit
 
 /// Bildytan i editorn: markera, flytta, ändra storlek och rotera.
@@ -8,6 +9,9 @@ struct CanvasEditor: View {
     let session: Session
     let slide: Slide
     @Binding var selection: UUID?
+    var onPaste: ([NSItemProvider]) -> Void = { _ in }
+    /// Öppna formatpanelen (på iPhone ligger den annars gömd under ⋯).
+    var onFormat: (() -> Void)?
     var onEditText: (UUID) -> Void
 
     @State private var live: DragPreview?
@@ -48,8 +52,14 @@ struct CanvasEditor: View {
                     .clipped()
                     .contentShape(Rectangle())
                     .onTapGesture { selection = nil }
+                    // Håll fingret på en tom del av bilden → Klistra in.
+                    .contextMenu {
+                        PasteButton(supportedContentTypes: [.image, .plainText]) { onPaste($0) }
+                    }
 
                 ForEach(shown.elements) { e in hitArea(e, k) }
+                // Det markerade elementets läge syns i knappraden; märket skulle hamna under hörnhandtaget.
+                ForEach(shown.elements.filter { ($0.reveal != nil || $0.sound != nil) && $0.id != selection }) { e in badge(e, k) }
 
                 if guides.v { Rectangle().fill(.pink).frame(width: 2, height: geo.size.height).offset(x: geo.size.width / 2 - 1) }
                 if guides.h { Rectangle().fill(.pink).frame(width: geo.size.width, height: 2).offset(y: geo.size.height / 2 - 1) }
@@ -59,6 +69,12 @@ struct CanvasEditor: View {
                             onResize: { corner, t in resize(e, corner: corner, t: t, k: k) },
                             onRotate: { loc in rotate(e, to: loc, k: k) },
                             onEnd: { commit() })
+                    if live == nil {
+                        SelectionBar(element: e, onReveal: { setReveal(e, $0) }, onFormat: onFormat,
+                                     onDuplicate: { duplicate(e) }, onDelete: { delete(e) })
+                            .position(x: min(max(e.frame.midX * k, 170), max(geo.size.width - 170, 170)),
+                                      y: min(e.frame.y * k + e.frame.h * k + 44, geo.size.height + 24))
+                    }
                 }
             }
             .coordinateSpace(name: "canvas")
@@ -87,6 +103,39 @@ struct CanvasEditor: View {
             .accessibilityElement()
             .accessibilityLabel(e.accessibilityName)
             .accessibilityAddTraits(.isButton)
+    }
+
+    /// Litet märke i hörnet: visas vid tryck (med ordningsnummer) och/eller har ljud.
+    private func badge(_ e: Element, _ k: Double) -> some View {
+        let order = (slide.revealOrder.firstIndex(of: e.id)).map { $0 + 1 }
+        return HStack(spacing: 4) {
+            if let order { Label("\(order)", systemImage: "hand.tap.fill") }
+            if e.sound != nil { Image(systemName: "speaker.wave.2.fill") }
+        }
+        .font(.caption2.bold()).foregroundStyle(.white)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.purple, in: Capsule())
+        .fixedSize()
+        .position(x: (e.frame.x + e.frame.w) * k, y: e.frame.y * k)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func setReveal(_ e: Element, _ fx: AppearEffect?) {
+        guard var cur = slide.element(e.id) else { return }
+        cur.reveal = fx
+        session.perform(.upsertElement(slide: slide.id, cur, at: nil))
+    }
+
+    private func duplicate(_ e: Element) {
+        guard var copy = slide.element(e.id) else { return }
+        copy.id = UUID()
+        copy.frame.x += 40; copy.frame.y += 40
+        if session.perform(.upsertElement(slide: slide.id, copy, at: nil)) { selection = copy.id }
+    }
+
+    private func delete(_ e: Element) {
+        if session.perform(.deleteElement(slide: slide.id, element: e.id)) { selection = nil }
     }
 
     // MARK: Gester
@@ -166,6 +215,43 @@ struct CanvasEditor: View {
     }
 }
 
+/// Knappraden under ett markerat element: visa vid tryck (med effekt) och formatpanelen.
+private struct SelectionBar: View {
+    let element: Element
+    var onReveal: (AppearEffect?) -> Void
+    var onFormat: (() -> Void)?
+    var onDuplicate: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Menu {
+                Picker("Visas", selection: Binding(get: { element.reveal }, set: { onReveal($0) })) {
+                    Text("Direkt").tag(AppearEffect?.none)
+                    ForEach(AppearEffect.allCases, id: \.self) { fx in
+                        Text("När jag trycker – \(fx.name.lowercased())").tag(AppearEffect?.some(fx))
+                    }
+                }
+            } label: {
+                Label(element.reveal == nil ? "Visas direkt" : "Vid tryck", systemImage: element.reveal == nil ? "hand.tap" : "hand.tap.fill")
+            }
+            .tint(element.reveal == nil ? .primary : .purple)
+            if let onFormat {
+                Button(action: onFormat) { Label("Format", systemImage: "paintbrush") }.tint(.primary)
+            }
+            Button(action: onDuplicate) { Label("Duplicera", systemImage: "plus.square.on.square") }
+                .labelStyle(.iconOnly).tint(.primary)
+            Button(role: .destructive, action: onDelete) { Label("Ta bort", systemImage: "trash") }
+                .labelStyle(.iconOnly).tint(.red)
+        }
+        .font(.subheadline.weight(.semibold))
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .fixedSize()
+    }
+}
+
 /// Markeringsram med fyra hörn för storlek och en knopp för rotation.
 private struct Handles: View {
     let element: Element
@@ -211,6 +297,7 @@ extension Element {
         case .text(let t): "Text: \(t.text)"
         case .shape(let s): s.kind.name
         case .image: "Bild"
+        case .poll(let p): "Omröstning: \(p.question)"
         }
     }
 }

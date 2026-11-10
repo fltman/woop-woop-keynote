@@ -42,6 +42,7 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
 6. **Inga tredjepartsberoenden** i SlideKit så länge det går att undvika.
 7. **Bilder** skalas ner vid import till högst 2048 px och lagras innehållsadresserat (sha256).
 8. **Barnens innehåll lämnar aldrig hemnätet** om inte någon exporterar och delar själv.
+   Enda undantaget: sökorden i GIPHY-sökningen (§13).
 9. **Inget delas förrän man själv trycker på Dela.** Då visas presentationen direkt på en
    ledig TV, utan att någon behöver välja med fjärren. En TV som visar något levande stannar kvar där.
 10. **Värden släpper in redigerare** (ja/nej). TV:n bara tittar och kommer in direkt.
@@ -52,10 +53,33 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
 12. **Scenen är en livesändning.** Kameran följer bilden där något händer, ändringar lyser
     i personens färg, och flödet bredvid bilden (aldrig ovanpå) säger vem som gör vad.
     Anteckningar syns aldrig på scenen.
+13. **GIPHY:** bara sökorden skickas till GIPHY, alltid med `rating=g` (barnvänligt), och
+    "Drivs av GIPHY" syns i sökrutan. Nyckeln ligger i `Config/Secrets.xcconfig` (gitignorerad).
+    Animerade GIF:ar sparas orörda och animeras överallt. .pptx spelar dem själv.
+14. **Visa när jag trycker och ljud.** Ett element med `reveal` syns inte på presentationsskärmen
+    förrän den som presenterar trycker på det. Den som presenterar ser det som ett spöke.
+    "Nästa" visar dolda element i ordning innan bilden byts, och bakåt ger en färdigbyggd bild.
+    Ljud (`sound`) spelas av presentationsskärmen: TV:n om den är med, annars den som presenterar.
+    Export: klickanimationer och klickljud (WAV) i .pptx. Känd begränsning: Keynote tappar klickljuden.
+    Effekterna snurra och konfetti exporteras som zoom, studsa som flyg in uppifrån.
+    "Försvinner när jag trycker" (`vanish`) finns bara i appen; i .pptx står elementet kvar.
+15. **Delningen har ett fast id.** Bonjour-annonsen bär presentationens id i sin TXT-post. Namnet
+    ("Ida: Vulkaner") är bara det som visas och får bytas medan man delar. TV:n och klienterna
+    hittar tillbaka via id:t, och en inbjudan till TV:n (Spela → Apple TV) skickar id:t.
+16. **Live under presentationen** (`LiveEvent`): reaktioner, laserpekare, streck och ljudknappar är
+    flyktiga. De går via värden till alla, sparas aldrig och exporteras aldrig. Streck och pekare
+    försvinner vid bildbyte. Ljudknapparnas ljud är effekter gjorda med ElevenLabs som följer med appen.
+    En teckning som görs i editorn (Rita) blir däremot en vanlig bild och exporteras som en sådan.
+17. **Publiken röstar på hemnätet.** Omröstningar och quiz (`Content.poll`) är element på bilden.
+    Den som delar kör en liten webbserver; QR-koden i rutan leder dit. Bara värden räknar röster,
+    en röst per mobil, och man får byta tills rätt svar visas. Rätt svar skickas inte till publikens
+    sida förrän presentatören visar det. Rösterna sparas inte. Export: frågan och alternativen som text.
 
 ## Faser
 
 1. Modell, rendering, iOS-editor, bibliotek, .pptx- och PDF-export, tvOS-scen och presentation.
 2. Samredigering mellan flera iPads: lås, närvaro, live-drag på scenen och bildsynk.
 3. Klickbara bilder: länk till bild, nästa och föregående (exporteras som PPTX-hyperlänkar).
-4. Publiken deltar: omröstning och quiz via QR på TV:n, med en webbsida från värden.
+   Visa när jag trycker, inträdeseffekter och ljud (§14). Klistra in och GIPHY (§13).
+4. Publiken deltar: omröstning och quiz via QR på TV:n, med en webbsida från värden (§17).
+   Reaktioner, laserpekare, rita, ljudknappar och presentatörens skärm (§16).

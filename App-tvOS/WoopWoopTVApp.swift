@@ -23,26 +23,64 @@ final class TVModel {
         let id = UserDefaults.standard.string(forKey: "peerID").flatMap(UUID.init) ?? UUID()
         UserDefaults.standard.set(id.uuidString, forKey: "peerID")
         me = Peer(id: id, name: "TV", color: RGBA(hex: "8E8E93"), role: .stage)
+        beacon.onInvite = { [weak self] name in self?.invited(name) }
+        beacon.start()
         Task { [weak self] in
             while true {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 self?.retryIfLost()
+                self?.updateIdleTimer()
             }
         }
     }
 
+    /// Gör TV:n synlig för telefonerna (Spela → välj den här TV:n).
+    private let beacon = TVBeacon(name: UIDevice.current.name)
+    /// Någon bad just den här TV:n visa en presentation som ännu inte syns på nätet.
+    private var pendingInvite: String?
+    /// Senaste gången något hände. Står TV:n och väntar längre än så får skärmsläckaren komma.
+    private var lastActivity = Date()
+    static let stayAwakeWhileWaiting: TimeInterval = 60 * 60
+
     /// Presentationen TV:n visar (eller väntar på att få tillbaka).
     private(set) var wantedHost: String?
+    /// Varför TV:n gick tillbaka till väntläget (t.ex. "Värden slutade dela").
+    private(set) var notice: String?
     /// Presentationer man aktivt lämnat med fjärren; dem hoppar TV:n inte in i igen av sig själv.
     private var declined: Set<String> = []
 
+    /// Telefonen valde den här TV:n: visa presentationen även om vi visar något annat.
+    func invited(_ key: String) {
+        lastActivity = Date()
+        declined.remove(key)
+        if let h = browser.hosts.first(where: { $0.id == key }) { join(h) } else { pendingInvite = key }
+        updateIdleTimer()
+    }
+
+    /// Skärmsläckaren startar aldrig medan något delas, och inte under den första timmen när TV:n väntar.
+    /// (Ingen app kan stänga en skärmsläckare som redan är igång eller väcka en sovande Apple TV.)
+    func updateIdleTimer() {
+        let connected = session.map { s in if case .lost = s.link { return false } else { return true } } ?? false
+        if connected { lastActivity = Date() }
+        UIApplication.shared.isIdleTimerDisabled = connected || Date().timeIntervalSince(lastActivity) < Self.stayAwakeWhileWaiting
+    }
+
+    func becameActive() {
+        lastActivity = Date()
+        beacon.start()
+        updateIdleTimer()
+    }
+
     func join(_ host: HostBrowser.Host) {
+        lastActivity = Date()
+        pendingInvite = nil
+        notice = nil
         session?.leave()
         let s = Session(deck: Deck(title: host.name), me: me, assets: assets)
         s.join(host.endpoint)
         session = s
-        wantedHost = host.name
-        declined.remove(host.name)
+        wantedHost = host.id
+        declined.remove(host.id)
     }
 
     func leave() {
@@ -61,25 +99,52 @@ final class TVModel {
     /// Dela på telefonen = visa på TV:n. En ledig TV (eller en som tappat kontakten)
     /// tar den presentation som dök upp senast; en TV som visar något levande stannar kvar.
     func hostsChanged(old: [HostBrowser.Host], new: [HostBrowser.Host]) {
+        if let p = pendingInvite, let h = new.first(where: { $0.id == p }) { return join(h) }
         guard isIdle else { return }
-        if let w = wantedHost, let h = new.first(where: { $0.name == w }) { return join(h) }
-        let added = new.filter { h in !old.contains { $0.name == h.name } }
+        if let w = wantedHost, let h = new.first(where: { $0.id == w }) { return join(h) }
+        // Jämför på presentationens fasta id: ett namnbyte är inte en ny presentation.
+        let added = new.filter { h in !old.contains { $0.id == h.id } }
         if let h = added.last { return join(h) }
         // TV:n startades när någon redan delade.
-        let open = new.filter { !declined.contains($0.name) }
+        joinOnlyOpenHost(new)
+    }
+
+    /// När värden sa adjö: presentationens id och när, så att vi inte försöker igen direkt.
+    private var cooldown: [String: Date] = [:]
+
+    private func joinOnlyOpenHost(_ hosts: [HostBrowser.Host]) {
+        let now = Date()
+        let open = hosts.filter { h in
+            !declined.contains(h.id) && cooldown[h.id].map { now.timeIntervalSince($0) > 15 } ?? true
+        }
         if session == nil, open.count == 1 { join(open[0]) }
     }
 
     /// Försök igen med jämna mellanrum om kontakten tappats (t.ex. telefonen låstes).
     func retryIfLost() {
+        // Värden sa adjö (slutade dela, fel version): tillbaka till väntläget i stället för att
+        // stå kvar med en död scen eller försöka om och om igen.
+        if let s = session, s.turnedAway, case .lost(let why) = s.link {
+            notice = why
+            // Vänta en stund innan samma presentation prövas igen (annonsen kan hänga kvar ett tag,
+            // och vid olika appversioner ska vi inte fråga om var tredje sekund). Men spärra den inte:
+            // delar telefonen samma presentation igen ska TV:n visa den.
+            if let w = wantedHost { cooldown[w] = Date() }
+            wantedHost = nil; session = nil
+            return
+        }
+        // Ledig TV och precis en presentation delas: visa den. Händelsen "ny presentation" kan utebli
+        // när samma presentation slutar delas och delas igen i ett svep.
+        if session == nil { joinOnlyOpenHost(browser.hosts) }
         guard let s = session, case .lost = s.link, let w = wantedHost,
-              let h = browser.hosts.first(where: { $0.name == w }) else { return }
+              let h = browser.hosts.first(where: { $0.id == w }) else { return }
         join(h)
     }
 }
 
 struct TVRoot: View {
     @State private var model = TVModel()
+    @Environment(\.scenePhase) private var phase
     var body: some View {
         Group {
             if let s = model.session {
@@ -93,6 +158,7 @@ struct TVRoot: View {
             }
         }
         .onAppear { model.browser.start() }
+        .onChange(of: phase) { _, p in if p == .active { model.becameActive() } }
         .onChange(of: model.browser.hosts) { old, hosts in
             #if DEBUG
             // -autojoin <namn>: bara presentationer vars namn innehåller <namn> (för simulatorn).
@@ -113,6 +179,7 @@ struct HostPicker: View {
     var body: some View {
         VStack(spacing: 50) {
             Text("Woop Woop").font(.system(size: 96, weight: .heavy, design: .rounded))
+            if let n = model.notice { Text(n).font(.title3).foregroundStyle(.orange) }
             if model.browser.hosts.isEmpty {
                 VStack(spacing: 20) {
                     ProgressView()

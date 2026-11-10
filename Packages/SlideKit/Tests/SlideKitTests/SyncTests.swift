@@ -175,6 +175,34 @@ final class SyncTests: XCTestCase {
         host.stopHosting()
     }
 
+    /// TV:n ansluter igen innan värden märkt att den gamla anslutningen dog. När den gamla sedan
+    /// stängs får TV:n inte försvinna ur listan. Och ett nej ska inte leda till nya försök.
+    func testReconnectKeepsPeerAndRefusalSticks() async throws {
+        let host = Session(deck: .new(title: "Igen"), me: Peer(name: "Pappa", color: Peer.palette[0]), assets: tmpStore())
+        try host.startHosting(advertise: false)
+        try await waitUntil("lyssnar") { host.hostPort != nil }
+        let port = NWEndpoint.Port(rawValue: host.hostPort!)!
+        let tvPeer = Peer(name: "TV", color: Peer.palette[2], role: .stage)
+        let old = Session(deck: .new(title: "t"), me: tvPeer, assets: tmpStore())
+        old.join(.hostPort(host: "127.0.0.1", port: port))
+        try await waitUntil("tv inne") { old.link == .connected }
+        let new = Session(deck: .new(title: "t"), me: tvPeer, assets: tmpStore())
+        new.join(.hostPort(host: "127.0.0.1", port: port))
+        try await waitUntil("tv inne igen, den gamla utslängd") { new.link == .connected && old.role == .solo }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(host.peers.filter { $0.role == .stage }.count, 1)
+        host.perform(.setTitle("Kvar"))
+        try await waitUntil("den nya får ändringar") { new.deck.title == "Kvar" }
+
+        let stranger = Session(deck: .new(title: "s"), me: Peer(name: "Okänd", color: Peer.palette[3]), assets: tmpStore())
+        stranger.join(.hostPort(host: "127.0.0.1", port: port))
+        try await waitUntil("frågar") { host.joinRequests.count == 1 }
+        host.answer(stranger.me.id, admit: false)
+        try await waitUntil("fick nej") { stranger.role == .solo && stranger.turnedAway }
+        XCTAssertFalse(new.turnedAway)
+        host.stopHosting()
+    }
+
     static func tinyPNG() -> Data? {
         let ctx = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

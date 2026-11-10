@@ -13,6 +13,9 @@ public final class Session {
 
     public private(set) var role: Role = .solo
     public private(set) var link: Link = .none
+    /// Värden sa adjö (nej tack, slutade dela, fel version). Då ska ingen ansluta igen av sig själv:
+    /// annars frågar ett "Nej" om igen var tredje sekund.
+    public private(set) var turnedAway = false
     public private(set) var me: Peer
     /// Det som visas: bekräftat + mina väntande ändringar.
     public private(set) var deck: Deck
@@ -20,7 +23,16 @@ public final class Session {
     /// element → peer
     public private(set) var locks: [UUID: UUID] = [:]
     public private(set) var presence: [UUID: Presence] = [:]
-    public private(set) var present = PresentState()
+    public private(set) var present = PresentState() {
+        didSet {
+            // Streck och pekare hör till bilden de ritades på.
+            if oldValue.slideIndex != present.slideIndex || oldValue.isPresenting != present.isPresenting {
+                live.ink = []; live.pointer = nil
+            }
+        }
+    }
+    /// Reaktioner, laserpekare, streck, ljudknappar och röster. Flyktigt, sparas aldrig.
+    public private(set) var live = LiveState()
     public private(set) var lastEditedSlide: UUID?
     /// Bilden där något senast hände (ändring, bildbyte, markering, drag). Scenen följer den.
     public private(set) var focusSlide: UUID?
@@ -183,12 +195,94 @@ public final class Session {
         }
     }
 
+    // MARK: - Live: reaktioner, pekare, streck, ljudknappar, röster
+
+    /// Skickar något flyktigt till alla. Syns direkt hos mig själv.
+    public func send(_ e: LiveEvent) {
+        switch e {
+        case .votes, .audience: guard role != .client else { return }
+        default: break
+        }
+        applyLive(e)
+        switch role {
+        case .solo: break
+        case .host: broadcast(.live(e))
+        case .client: upstream?.send(.live(e))
+        }
+    }
+
+    private func applyLive(_ e: LiveEvent) {
+        live.apply(e)
+        if case .reaction = e {
+            // Städa när de har flugit klart, så att vyerna kan sluta rita.
+            DispatchQueue.main.asyncAfter(deadline: .now() + LiveState.reactionTime + 0.2) { [weak self] in
+                MainActor.assumeIsolated {
+                    let now = Date()
+                    self?.live.reactions.removeAll { now.timeIntervalSince($0.at) > LiveState.reactionTime }
+                }
+            }
+        }
+    }
+
+    /// Omröstningen publiken kan rösta i just nu: den första synliga på bilden som presenteras.
+    public var currentPoll: (id: UUID, box: PollBox)? {
+        guard present.isPresenting, let slide = confirmed.slides[safe: present.slideIndex] else { return nil }
+        let hidden = present.hidden(on: slide)
+        for e in slide.elements where !hidden.contains(e.id) {
+            if case .poll(let p) = e.content { return (e.id, p) }
+        }
+        return nil
+    }
+
+    /// En röst från publikens webbsida. En röst per person; man får byta tills rätt svar visas.
+    func castVote(poll: UUID, option: Int, voter: String) {
+        guard let cur = currentPoll, cur.id == poll, cur.box.options.indices.contains(option),
+              !live.answers.contains(poll) else { return }
+        ballots[poll, default: [:]][voter] = option
+        var counts = [Int](repeating: 0, count: cur.box.options.count)
+        for o in ballots[poll, default: [:]].values where counts.indices.contains(o) { counts[o] += 1 }
+        send(.votes(poll: poll, counts: counts))
+    }
+
+    /// Det publikens sida visar (JSON).
+    func audienceState(voter: String) -> Data {
+        var poll: Any = NSNull()
+        if let cur = currentPoll {
+            let shown = live.answers.contains(cur.id)
+            var p: [String: Any] = ["id": cur.id.uuidString, "question": cur.box.question, "options": cur.box.options, "shown": shown]
+            if let mine = ballots[cur.id]?[voter] { p["mine"] = mine }
+            if shown, let c = cur.box.correct { p["correct"] = c }
+            poll = p
+        }
+        return (try? JSONSerialization.data(withJSONObject: ["poll": poll])) ?? Data("{}".utf8)
+    }
+
+    @ObservationIgnored private var ballots: [UUID: [String: Int]] = [:]
+    @ObservationIgnored private var audience: AudienceServer?
+
+    private func startAudience() {
+        let a = audience ?? AudienceServer()
+        audience = a
+        a.state = { [weak self] v in self?.audienceState(voter: v) ?? Data("{}".utf8) }
+        a.vote = { [weak self] p, o, v in self?.castVote(poll: p, option: o, voter: v) }
+        a.react = { [weak self] i in self?.send(.reaction(i)) }
+        a.onReady = { [weak self] port in
+            self?.send(.audience(url: LocalAddress.ipv4().map { "http://\($0):\(port)" }))
+        }
+        a.start()
+    }
+
+    private func stopAudience() {
+        audience?.stop(); audience = nil
+        applyLive(.audience(url: nil))
+    }
+
     private func applyRemote(_ cmd: RemoteCommand) {
         var s = present
         switch cmd {
-        case .next: s.slideIndex += 1
-        case .previous: s.slideIndex -= 1
-        case .start: s.isPresenting = true
+        case .next: s = present.next(in: confirmed)
+        case .previous: s = present.previous(in: confirmed)
+        case .start: s.isPresenting = true; s.revealed = []
         case .stop: s.isPresenting = false
         }
         setPresent(s)
@@ -243,6 +337,7 @@ public final class Session {
         try makeListener(port: port)
         role = .host
         link = .connecting
+        startAudience()
         if let sel = mySelection { locks = [sel: me.id] }
     }
 
@@ -252,6 +347,7 @@ public final class Session {
         guard role == .host else { return }
         link = .connecting
         retries = 0
+        startAudience()
         guard let old = listener else { return relisten() }
         listener = nil
         // Porten släpps först när den gamla lyssnaren stängt helt; starta den nya då.
@@ -303,11 +399,32 @@ public final class Session {
     }
 
     @ObservationIgnored private var advertising = false
+
+    /// Namnet presentationen delas under på hemnätet.
+    public var advertisedName: String { serviceName.name ?? "" }
+    /// Presentationens fasta id i annonsen. Namnet kan bytas medan man delar; id:t består,
+    /// så TV:n och de andra hittar tillbaka efter ett avbrott.
+    public var shareKey: String { confirmed.id.uuidString }
+
+    /// Ber en Apple TV visa den här presentationen. Delar först om vi inte redan gör det.
+    public func invite(tv endpoint: NWEndpoint) {
+        if role == .solo { try? startHosting() }
+        guard role == .host else { return }
+        let c = FramedConnection(NWConnection(to: endpoint, using: Bonjour.parameters()))
+        let key = shareKey
+        c.onReady = { c.sendAndClose(.invite(host: key)) }
+        invites.append(c)
+        c.onClose = { [weak self] _ in MainActor.assumeIsolated { self?.invites.removeAll { $0 === c } } }
+        c.start()
+    }
+    @ObservationIgnored private var invites: [FramedConnection] = []
     private var serviceName: NWListener.Service {
         // Bonjour-namn får vara högst 63 byte.
         var name = "\(me.name): \(deck.title)"
         while name.utf8.count > 63 { name.removeLast() }
-        return NWListener.Service(name: name, type: Bonjour.type)
+        var txt = NWTXTRecord()
+        txt["id"] = shareKey
+        return NWListener.Service(name: name, type: Bonjour.type, txtRecord: txt)
     }
 
     public func stopHosting() {
@@ -316,6 +433,7 @@ public final class Session {
         for c in clients.values { c.sendAndClose(.bye(reason: "Värden slutade dela")) }
         clients.removeAll(); clientPeer.removeAll()
         listener?.cancel(); listener = nil
+        stopAudience()
         role = .solo; link = .none; hostPort = nil
         peers = [me]
         locks = locks.filter { $0.value == me.id }
@@ -355,11 +473,21 @@ public final class Session {
     private func admit(_ peer: Peer, cid: UUID) {
         guard let c = clients[cid] else { return }
         admitted.insert(peer.id)
+        // Samma person ansluter igen innan vi märkt att den gamla anslutningen dog. Pensionera den
+        // gamla först, annars plockar dess stängning bort personen ur listan fast hen är kvar.
+        for (old, p) in clientPeer where p == peer.id && old != cid {
+            clientPeer[old] = nil
+            clients.removeValue(forKey: old)?.cancel()
+        }
         clientPeer[cid] = peer.id
         peers.removeAll { $0.id == peer.id }
         peers.append(peer)
         c.send(.welcome(deck: confirmed, peers: peers, locks: lockEntries, present: present, lastEditedSlide: lastEditedSlide))
         for p in presence.values { c.send(.presence(p)) }
+        c.send(.live(.audience(url: live.audienceURL)))
+        for (p, counts) in live.votes { c.send(.live(.votes(poll: p, counts: counts))) }
+        for p in live.answers { c.send(.live(.answer(poll: p, shown: true))) }
+        for s in live.ink { c.send(.live(.stroke(s))) }
         broadcast(.peers(peers), except: cid)
     }
 
@@ -401,9 +529,14 @@ public final class Session {
         case .remote(let cmd):
             applyRemote(cmd)
         case .needAssets(let ids):
-            for id in ids { if let d = assets.data(id) { c.send(.asset(id: id, data: d)) } }
+            for id in ids where !id.contains("/") { if let d = assets.data(id) { c.send(.asset(id: id, data: d)) } }
         case .asset(let id, let data):
             receiveAsset(id, data)
+        case .live(let e):
+            // Röster och adressen kommer bara från värden.
+            switch e { case .votes, .audience: return; default: break }
+            applyLive(e)
+            broadcast(.live(e), except: cid)
         default: break
         }
     }
@@ -456,6 +589,7 @@ public final class Session {
                 self.peers = [self.me]
                 self.locks = [:]
                 self.presence = [:]
+                self.live = LiveState()
                 // Ett avsked från värden (bye) har redan sagt varför; skriv inte över det.
                 // Råa nätverksfel (POSIX 54 …) säger ingenting för en elvaåring.
                 if case .lost = self.link {} else { self.link = .lost("Tappade kontakten med den som delar") }
@@ -470,7 +604,7 @@ public final class Session {
         c.cancel()
         role = .solo; link = .none
         pending.removeAll(); rebuildView()
-        peers = [me]; locks = [:]; presence = [:]
+        peers = [me]; locks = [:]; presence = [:]; live = LiveState()
     }
 
     private func clientReceive(_ m: Wire) {
@@ -519,8 +653,11 @@ public final class Session {
         case .asset(let id, let data):
             receiveAsset(id, data)
         case .needAssets(let ids):
-            for id in ids { if let d = assets.data(id) { upstream?.send(.asset(id: id, data: d)) } }
+            for id in ids where !id.contains("/") { if let d = assets.data(id) { upstream?.send(.asset(id: id, data: d)) } }
+        case .live(let e):
+            applyLive(e)
         case .bye(let reason):
+            turnedAway = true
             link = .lost(reason)
         default: break
         }

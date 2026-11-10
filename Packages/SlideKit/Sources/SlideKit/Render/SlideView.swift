@@ -32,16 +32,23 @@ public struct SlideView: View {
     /// Ritar om när nya bilder kommit från nätet.
     public var assetVersion: Int
     public var glows: [UUID: Glow]
+    /// Dolda "visa när jag trycker"-element. Utan `ghosts` syns de inte alls (presentationsskärmen);
+    /// med `ghosts` syns de svagt med streckad ram (den som presenterar ska se var de finns).
+    public var hidden: Set<UUID>
+    public var ghosts: Bool
 
     public init(slide: Slide, assets: AssetStore, drags: [UUID: DragPreview] = [:],
-                marks: [UUID: Peer] = [:], assetVersion: Int = 0, glows: [UUID: Glow] = [:]) {
+                marks: [UUID: Peer] = [:], assetVersion: Int = 0, glows: [UUID: Glow] = [:],
+                hidden: Set<UUID> = [], ghosts: Bool = false) {
         self.slide = slide; self.assets = assets; self.drags = drags
         self.marks = marks; self.assetVersion = assetVersion; self.glows = glows
+        self.hidden = hidden; self.ghosts = ghosts
     }
 
     public var body: some View {
         GeometryReader { geo in
-            SlideCanvas(slide: slide, assets: assets, drags: drags, marks: marks, assetVersion: assetVersion, glows: glows)
+            SlideCanvas(slide: slide, assets: assets, drags: drags, marks: marks, assetVersion: assetVersion,
+                        glows: glows, hidden: hidden, ghosts: ghosts)
                 .scaleEffect(geo.size.width / SlideSize.width, anchor: .topLeading)
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }
@@ -58,11 +65,15 @@ public struct SlideCanvas: View {
     public var marks: [UUID: Peer] = [:]
     public var assetVersion: Int = 0
     public var glows: [UUID: Glow] = [:]
+    public var hidden: Set<UUID> = []
+    public var ghosts = false
 
     public init(slide: Slide, assets: AssetStore, drags: [UUID: DragPreview] = [:],
-                marks: [UUID: Peer] = [:], assetVersion: Int = 0, glows: [UUID: Glow] = [:]) {
+                marks: [UUID: Peer] = [:], assetVersion: Int = 0, glows: [UUID: Glow] = [:],
+                hidden: Set<UUID> = [], ghosts: Bool = false) {
         self.slide = slide; self.assets = assets; self.drags = drags
         self.marks = marks; self.assetVersion = assetVersion; self.glows = glows
+        self.hidden = hidden; self.ghosts = ghosts
     }
 
     public var body: some View {
@@ -71,7 +82,16 @@ public struct SlideCanvas: View {
             ForEach(slide.elements) { e in
                 let d = drags[e.id]
                 let f = d?.frame ?? e.frame
-                ElementView(element: e, assets: assets)
+                let isHidden = hidden.contains(e.id)
+                // Behållaren har elementets storlek, så att effekten (t.ex. "poppa upp") utgår från elementets mitt.
+                ZStack {
+                    if !isHidden || ghosts {
+                        ElementView(element: e, assets: assets)
+                            .opacity(isHidden ? 0.3 : 1)
+                            .overlay { if isHidden { GhostMark() } }
+                            .transition(e.reveal?.transition ?? (e.vanishes ? AppearEffect.pop.transition : .identity))
+                    }
+                }
                     .frame(width: max(f.w, 1), height: max(f.h, 1))
                     .overlay {
                         if let g = glows[e.id], g.strength > 0 {
@@ -89,6 +109,45 @@ public struct SlideCanvas: View {
         .frame(width: SlideSize.width, height: SlideSize.height, alignment: .topLeading)
         .clipped()
         .id(assetVersion)
+    }
+}
+
+/// Så ser ett dolt element ut för den som presenterar: tryck här så visas det.
+struct GhostMark: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .stroke(style: StrokeStyle(lineWidth: 6, dash: [18, 12]))
+            .foregroundStyle(.white.opacity(0.9))
+            .shadow(color: .black.opacity(0.6), radius: 4)
+            .overlay {
+                Image(systemName: "hand.tap.fill").font(.system(size: 64)).foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.6), radius: 6)
+            }
+    }
+}
+
+extension AppearEffect {
+    /// Effekten i bildenheter (bildytan är 1920×1080, så 2200 är helt utanför).
+    public var transition: AnyTransition {
+        switch self {
+        case .fade: .opacity
+        case .pop: .scale(scale: 0.05).combined(with: .opacity)
+        case .flyUp: .offset(y: 1300)
+        case .flyFromLeft: .offset(x: -2300)
+        case .flyFromRight: .offset(x: 2300)
+        case .spin: .modifier(active: Spin(turns: -1.5, scale: 0.05), identity: Spin(turns: 0, scale: 1)).combined(with: .opacity)
+        // Studsen kommer från fjädern som presentationen animerar med.
+        case .bounce: .offset(y: -1300)
+        case .confetti: .scale(scale: 0.05).combined(with: .opacity)
+        }
+    }
+}
+
+struct Spin: ViewModifier {
+    var turns: Double
+    var scale: Double
+    func body(content: Spin.Content) -> some View {
+        content.rotationEffect(.degrees(turns * 360)).scaleEffect(scale)
     }
 }
 
@@ -143,12 +202,37 @@ public struct ElementView: View {
         case .shape(let s):
             ShapeView(box: s)
         case .image(let i):
-            if let cg = assets.cgImage(i.assetID) {
+            if let anim = assets.animation(i.assetID) {
+                AnimatedImage(animation: anim)
+            } else if let cg = assets.cgImage(i.assetID) {
                 Image(decorative: cg, scale: 1).resizable()
             } else {
                 Rectangle().fill(Color.gray.opacity(0.25))
                     .overlay { Image(systemName: "photo").font(.system(size: 80)).foregroundStyle(.secondary) }
             }
+        case .poll(let p):
+            PollView(id: element.id, box: p, width: element.frame.w, height: element.frame.h)
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// Av i miniatyrer: en remsa full av GIF:ar som rör sig är både rörig och dyr.
+    @Entry public var animatesImages = true
+}
+
+/// Spelar en animerad GIF. Står still på första rutan när animationer är avstängda.
+public struct AnimatedImage: View {
+    public var animation: GIFAnimation
+    @Environment(\.animatesImages) private var animates
+    public init(animation: GIFAnimation) { self.animation = animation }
+    public var body: some View {
+        if animates {
+            TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
+                Image(decorative: animation.frame(at: ctx.date), scale: 1).resizable()
+            }
+        } else {
+            Image(decorative: animation.frames[0], scale: 1).resizable()
         }
     }
 }

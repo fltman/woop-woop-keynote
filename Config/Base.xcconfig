@@ -1,0 +1,4 @@
+// Gemensamma inställningar. Hemligheter ligger i Secrets.xcconfig, som är gitignorerad.
+// Kopiera Secrets.example.xcconfig till Secrets.xcconfig och fyll i.
+GIPHY_API_KEY =
+#include? "Secrets.xcconfig"

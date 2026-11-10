@@ -46,6 +46,22 @@ extension Content {
         case .text: ("en text", "texten")
         case .image: ("ett foto", "fotot")
         case .shape(let s): s.kind.forms
+        case .poll(let p): p.correct == nil ? ("en omröstning", "omröstningen") : ("en quizfråga", "quizfrågan")
+        }
+    }
+}
+
+extension AppearEffect {
+    public var name: String {
+        switch self {
+        case .fade: "Tona in"
+        case .pop: "Poppa upp"
+        case .flyUp: "Flyg in nerifrån"
+        case .flyFromLeft: "Flyg in från vänster"
+        case .flyFromRight: "Flyg in från höger"
+        case .spin: "Snurra in"
+        case .bounce: "Studsa ner"
+        case .confetti: "Konfetti"
         }
     }
 }

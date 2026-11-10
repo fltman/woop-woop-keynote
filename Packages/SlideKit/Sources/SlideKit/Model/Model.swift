@@ -101,10 +101,28 @@ public struct ImageBox: Codable, Hashable, Sendable {
     public init(assetID: String) { self.assetID = assetID }
 }
 
+/// Omröstning eller quiz (`correct` satt). Publiken röstar med mobilen via QR-koden (CONTRACT §16).
+/// Rösterna är live och sparas inte i decket. Exporteras som en textruta med frågan och alternativen.
+public struct PollBox: Codable, Hashable, Sendable {
+    public var question: String
+    public var options: [String]
+    /// Rätt svar (quiz), nil = vanlig omröstning.
+    public var correct: Int?
+    public var accent: RGBA
+    public var textColor: RGBA
+    public init(question: String, options: [String], correct: Int? = nil, accent: RGBA, textColor: RGBA) {
+        self.question = question; self.options = options; self.correct = correct
+        self.accent = accent; self.textColor = textColor
+    }
+    /// Det som hamnar i .pptx och .pdf-anteckningar: frågan och alternativen som text.
+    public var asText: String { ([question] + options.map { "• " + $0 }).joined(separator: "\n") }
+}
+
 public enum Content: Codable, Hashable, Sendable {
     case text(TextBox)
     case shape(ShapeBox)
     case image(ImageBox)
+    case poll(PollBox)
 }
 
 /// Klickbara element (fas 3). Exporteras som PPTX-hyperlänkar.
@@ -114,6 +132,13 @@ public enum ElementLink: Codable, Hashable, Sendable {
     case url(URL)
 }
 
+/// Hur ett "visa när jag trycker"-element kommer in. Exporteras som klickanimation i .pptx.
+public enum AppearEffect: String, Codable, CaseIterable, Sendable {
+    case fade, pop, flyUp, flyFromLeft, flyFromRight
+    /// Nya (protokoll 3). I .pptx: snurra och konfetti blir zoom, studsa blir flyg in uppifrån.
+    case spin, bounce, confetti
+}
+
 public struct Element: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var frame: Frame
@@ -121,12 +146,26 @@ public struct Element: Codable, Hashable, Identifiable, Sendable {
     public var rotation: Double
     public var content: Content
     public var link: ElementLink?
-    public init(id: UUID = UUID(), frame: Frame, rotation: Double = 0, content: Content, link: ElementLink? = nil) {
-        self.id = id; self.frame = frame; self.rotation = rotation; self.content = content; self.link = link
+    /// nil = syns direkt. Annars osynligt i presentationen tills den som presenterar trycker
+    /// på det (eller trycker "nästa"), och då kommer det in med effekten.
+    public var reveal: AppearEffect?
+    /// Ljud (asset-id, .m4a/.wav) som spelas när man trycker på elementet i presentationen,
+    /// eller när det visas om det har `reveal`. Exporteras som klickljud i .pptx.
+    public var sound: String?
+    /// true = försvinner när den som presenterar trycker på det (och kommer tillbaka vid nästa tryck).
+    /// Exporteras inte: i .pptx står elementet kvar.
+    public var vanish: Bool?
+    public init(id: UUID = UUID(), frame: Frame, rotation: Double = 0, content: Content,
+                link: ElementLink? = nil, reveal: AppearEffect? = nil, sound: String? = nil, vanish: Bool? = nil) {
+        self.id = id; self.frame = frame; self.rotation = rotation; self.content = content
+        self.link = link; self.reveal = reveal; self.sound = sound; self.vanish = vanish
     }
+    public var vanishes: Bool { vanish == true }
     public var assetIDs: [String] {
-        if case .image(let i) = content { return [i.assetID] }
-        return []
+        var ids: [String] = []
+        if case .image(let i) = content { ids.append(i.assetID) }
+        if let s = sound { ids.append(s) }
+        return ids
     }
 }
 
@@ -144,6 +183,8 @@ public struct Slide: Codable, Hashable, Identifiable, Sendable {
         self.notes = notes; self.transition = transition
     }
     public func element(_ id: UUID) -> Element? { elements.first { $0.id == id } }
+    /// Elementen som visas vid tryck, i den ordning "nästa" visar dem (bakifrån och fram).
+    public var revealOrder: [UUID] { elements.filter { $0.reveal != nil }.map(\.id) }
     public var assetIDs: [String] {
         var ids = elements.flatMap(\.assetIDs)
         if case .image(let a) = background { ids.append(a) }

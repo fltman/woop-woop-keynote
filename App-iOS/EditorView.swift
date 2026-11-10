@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 import SlideKit
 
 struct EditorView: View {
@@ -14,6 +15,9 @@ struct EditorView: View {
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var photo: PhotosPickerItem?
+    @State private var showGiphy = false
+    @State private var drawing = false
+    @State private var choosingScreen = false
     @State private var focusText = 0
 
     private var deck: Deck { session.deck }
@@ -32,6 +36,19 @@ struct EditorView: View {
             .toolbarRole(.editor)
         }
         .fullScreenCover(isPresented: $presenting) { PresentView(session: session) }
+        .confirmationDialog("Var vill du visa presentationen?", isPresented: $choosingScreen, titleVisibility: .visible) {
+            ForEach(model.tvs.hosts) { tv in
+                Button("\(tv.name) (Apple TV)") { presentOn(tv) }
+            }
+            Button("Här på \(UIDevice.current.userInterfaceIdiom == .pad ? "iPaden" : "telefonen")") { startPresenting() }
+            Button("Avbryt", role: .cancel) {}
+        } message: {
+            Text("På Apple TV blir din skärm fjärrkontroll och visar det som är dolt.")
+        }
+        .fullScreenCover(isPresented: $drawing) {
+            if let s = slide { DrawSheet(slide: s, assets: session.assets) { png, frame in placeDrawing(png, frame) } }
+        }
+        .sheet(isPresented: $showGiphy) { GiphyPicker { data in placeImage(data) }.presentationSizing(.page) }
         .alert("Byt namn", isPresented: $renaming) {
             TextField("Namn", text: $newTitle)
             Button("Spara") { if !newTitle.isEmpty { session.perform(.setTitle(newTitle)) } }
@@ -55,7 +72,18 @@ struct EditorView: View {
         }
         .onChange(of: photo) { _, item in Task { await addPhoto(item) } }
         .onAppear {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-giphy") { showGiphy = true }
+            #endif
             currentSlide = deck.slides.first?.id
+            #if DEBUG
+            // -selectstar: markera stjärnan på bild 2 (för att se knappraden på simulatorn).
+            if ProcessInfo.processInfo.arguments.contains("-selectstar"), deck.slides.count > 1,
+               let star = deck.slides[1].elements.first(where: { if case .shape(let b) = $0.content { b.kind == .star } else { false } }) {
+                currentSlide = deck.slides[1].id
+                selection = star.id
+            }
+            #endif
             session.setPresence(slide: currentSlide)
         }
     }
@@ -76,6 +104,15 @@ struct EditorView: View {
     private var narrow: some View {
         VStack(spacing: 0) {
             canvas
+                .overlay(alignment: .bottomTrailing) {
+                    Button { play() } label: {
+                        Label("Spela", systemImage: "play.fill").font(.headline)
+                            .padding(.horizontal, 18).padding(.vertical, 12)
+                            .foregroundStyle(.white).background(Color.green, in: Capsule())
+                            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                    }
+                    .padding(14)
+                }
             Divider()
             SlideList(session: session, current: $currentSlide, axis: .horizontal)
                 .frame(height: 110)
@@ -89,7 +126,9 @@ struct EditorView: View {
         ZStack {
             Color(.secondarySystemBackground).ignoresSafeArea()
             if let s = slide {
-                CanvasEditor(session: session, slide: s, selection: $selection) { _ in
+                CanvasEditor(session: session, slide: s, selection: $selection, onPaste: { providers in
+                    Task { await paste(providers) }
+                }, onFormat: hSize == .regular ? nil : { showInspector = true }) { _ in
                     focusText += 1
                     if hSize != .regular { showInspector = true }
                 }
@@ -131,12 +170,28 @@ struct EditorView: View {
                 }
             } label: { Label("Form", systemImage: "star.square.on.square") }
             PhotosPicker(selection: $photo, matching: .images) { Label("Bild", systemImage: "photo") }
+            Button { showGiphy = true } label: { Label("GIF", systemImage: "sparkles") }
+            Button { selection = nil; drawing = true } label: { Label("Rita", systemImage: "pencil.tip.crop.circle") }
+            Menu {
+                Button("Omröstning", systemImage: "chart.bar.fill") { addPoll(quiz: false) }
+                Button("Quizfråga", systemImage: "checkmark.seal.fill") { addPoll(quiz: true) }
+            } label: { Label("Fråga publiken", systemImage: "chart.bar.fill") }
+            PasteButton(supportedContentTypes: [.image, .plainText]) { providers in
+                Task { await paste(providers) }
+            }
+            .labelStyle(.iconOnly)
             if hSize != .regular {
                 Button { showInspector = true } label: { Label("Format", systemImage: "paintbrush") }
             }
             CollabMenu(session: session)
             ExportMenu(deck: deck, assets: session.assets)
-            Button { startPresenting() } label: { Label("Spela", systemImage: "play.fill") }
+        }
+        // På iPhone hamnar verktygsradens knappar under ⋯; där ligger Spela i stället ovanpå bildytan.
+        if hSize == .regular {
+            ToolbarItem(placement: .confirmationAction) {
+                Button { play() } label: { Label("Spela", systemImage: "play.fill") }
+                    .buttonStyle(.borderedProminent).tint(.green)
+            }
         }
     }
 
@@ -153,12 +208,15 @@ struct EditorView: View {
         return Frame(x: (SlideSize.width - w) / 2 + n, y: (SlideSize.height - h) / 2 + n, w: w, h: h)
     }
 
-    private func addText() {
+    private func addText(_ text: String? = nil) {
         guard let s = slide else { return }
         var style = Theme.inferred(from: s).body
-        style.align = .center
-        place(Element(frame: centered(w: 900, h: 160), content: .text(TextBox(text: "Skriv här", style: style))))
-        focusText += 1
+        style.align = text == nil ? .center : .leading
+        let lines = Double(max(text?.components(separatedBy: "\n").count ?? 1, 1))
+        let h = min(lines * style.size * 1.3 + 20, 900)
+        place(Element(frame: centered(w: text == nil ? 900 : 1400, h: h),
+                      content: .text(TextBox(text: text ?? "Skriv här", style: style))))
+        if text == nil { focusText += 1 }
     }
 
     private func addShape(_ k: ShapeKind) {
@@ -168,13 +226,63 @@ struct EditorView: View {
                       content: .shape(ShapeBox(kind: k, fill: Theme.inferred(from: s).accent))))
     }
 
+    /// Publiken röstar med mobilen via QR-koden som dyker upp när man delar och presenterar.
+    private func addPoll(quiz: Bool) {
+        guard let s = slide else { return }
+        let theme = Theme.inferred(from: s)
+        let box = PollBox(question: quiz ? "Vilket är rätt?" : "Vad tycker ni?",
+                          options: quiz ? ["Svar A", "Svar B", "Svar C"] : ["Ja", "Nej", "Kanske"],
+                          correct: quiz ? 0 : nil, accent: theme.accent, textColor: theme.body.color)
+        place(Element(frame: Frame(x: 210, y: 190, w: 1500, h: 700), content: .poll(box)))
+    }
+
+    /// En teckning blir en vanlig bild (genomskinlig PNG), så den följer med i exporten.
+    private func placeDrawing(_ png: Data, _ frame: Frame) {
+        guard let id = try? session.assets.importImage(png) else { return }
+        place(Element(frame: frame, content: .image(ImageBox(assetID: id))))
+    }
+
     private func addPhoto(_ item: PhotosPickerItem?) async {
-        guard let item, let data = try? await item.loadTransferable(type: Data.self),
-              let id = try? session.assets.importImage(data) else { return }
+        guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
         photo = nil
+        placeImage(data)
+    }
+
+    private func placeImage(_ data: Data) {
+        guard let id = try? session.assets.importImage(data) else { return }
         let (pw, ph) = session.assets.pixelSize(id) ?? (4, 3)
         let scale = min(1100 / Double(pw), 800 / Double(ph))
         place(Element(frame: centered(w: Double(pw) * scale, h: Double(ph) * scale), content: .image(ImageBox(assetID: id))))
+    }
+
+    /// Klistra in från urklipp (t.ex. "Kopiera" på en bild i Safari): bilder blir bilder, text blir en textruta.
+    /// Bilden har företräde, eftersom Safari ofta lägger både bilden och dess adress i urklippet.
+    func paste(_ providers: [NSItemProvider]) async {
+        for p in providers {
+            if p.hasItemConformingToTypeIdentifier(UTType.image.identifier),
+               let data = await p.data(for: .image) {
+                placeImage(data)
+                return
+            }
+        }
+        for p in providers where p.canLoadObject(ofClass: NSString.self) {
+            if let text = await p.string(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                addText(text)
+                return
+            }
+        }
+    }
+
+    /// Spela: finns det en Apple TV med Woop Woop öppen får man välja den. Annars presenterar vi här.
+    private func play() {
+        if model.tvs.hosts.isEmpty || session.role == .client { startPresenting() } else { choosingScreen = true }
+    }
+
+    /// Visa på en Apple TV: dela (om vi inte redan gör det), be just den TV:n ansluta och starta.
+    /// TV:n får presentationsläget i välkomsten, så den visar presentationen direkt.
+    private func presentOn(_ tv: HostBrowser.Host) {
+        session.invite(tv: tv.endpoint)
+        startPresenting()
     }
 
     private func startPresenting() {
@@ -212,7 +320,7 @@ struct StatusBanner: View {
                 banner(session.role == .host ? "Börjar dela…" : "Väntar på att värden släpper in dig…",
                        "antenna.radiowaves.left.and.right", .orange)
             case .lost(let why):
-                banner(session.role == .solo ? "\(why). Försöker igen…" : why, "wifi.slash", .red)
+                banner(session.role == .solo && !session.turnedAway ? "\(why). Försöker igen…" : why, "wifi.slash", .red)
             case .connected:
                 HStack(spacing: -8) {
                     ForEach(session.peers) { p in
@@ -233,6 +341,20 @@ struct StatusBanner: View {
                 }
                 .padding(.horizontal).padding(.vertical, 6)
                 .background(.bar)
+                if session.present.isPresenting {
+                    // Publiken hejar: reaktionerna flyger upp över presentationen på TV:n.
+                    HStack(spacing: 6) {
+                        ForEach(LiveState.emoji.indices, id: \.self) { i in
+                            Button { session.send(.reaction(i)) } label: {
+                                Text(LiveState.emoji[i]).font(.title2).frame(maxWidth: .infinity, minHeight: 40)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Skicka \(LiveState.emoji[i])")
+                        }
+                    }
+                    .padding(.horizontal).padding(.bottom, 6)
+                    .background(.bar)
+                }
             case .none:
                 // Inget delas förrän man själv trycker här.
                 Button {

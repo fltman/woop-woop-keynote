@@ -62,7 +62,7 @@ struct LibraryView: View {
                 Button("Ta bort", role: .destructive) { if let d = toDelete { model.library.delete(d) }; toDelete = nil }
             }
         }
-        .onAppear { model.browser.start() }
+        .onAppear { model.browser.start(); model.tvs.start() }
     }
 }
 

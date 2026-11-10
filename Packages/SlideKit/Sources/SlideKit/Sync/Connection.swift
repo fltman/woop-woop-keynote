@@ -3,6 +3,8 @@ import Network
 
 public enum Bonjour {
     public static let type = "_woopwoop._tcp"
+    /// Apple TV-appar som kan visa en presentation.
+    public static let tvType = "_woopwoop-tv._tcp"
 
     static func parameters() -> NWParameters {
         let tcp = NWProtocolTCP.Options()

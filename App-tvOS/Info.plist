@@ -23,6 +23,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_woopwoop._tcp</string>
+		<string>_woopwoop-tv._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Woop Woop hittar presentationer i hemnätet så att TV:n kan visa dem.</string>

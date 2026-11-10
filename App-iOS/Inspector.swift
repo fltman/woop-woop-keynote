@@ -53,6 +53,11 @@ struct ElementInspector: View {
              { e, v in if case .text(var t) = e.content { t[keyPath: kp] = v; e.content = .text(t) } })
     }
 
+    private func poll<T>(_ key: String, _ kp: WritableKeyPath<PollBox, T>, _ fallback: T) -> Binding<T> {
+        bind(key, { e in if case .poll(let p) = e.content { p[keyPath: kp] } else { fallback } },
+             { e, v in if case .poll(var p) = e.content { p[keyPath: kp] = v; e.content = .poll(p) } })
+    }
+
     private func shape<T>(_ key: String, _ kp: WritableKeyPath<ShapeBox, T>, _ fallback: T) -> Binding<T> {
         bind(key, { e in if case .shape(let s) = e.content { s[keyPath: kp] } else { fallback } },
              { e, v in if case .shape(var s) = e.content { s[keyPath: kp] = v; e.content = .shape(s) } })
@@ -105,6 +110,60 @@ struct ElementInspector: View {
             }
         case .image:
             EmptyView()
+        case .poll(let p):
+            Section(p.correct == nil ? "Omröstning" : "Quiz") {
+                TextField("Fråga", text: poll("question", \.question, ""), axis: .vertical)
+                    .lineLimit(1...3)
+                    .focused($textFocused)
+                ForEach(p.options.indices, id: \.self) { i in
+                    HStack {
+                        TextField("Alternativ \(i + 1)", text: bind("opt\(i)", { e in
+                            if case .poll(let p) = e.content, p.options.indices.contains(i) { p.options[i] } else { "" }
+                        }, { e, v in
+                            if case .poll(var p) = e.content, p.options.indices.contains(i) { p.options[i] = v; e.content = .poll(p) }
+                        }))
+                        if p.options.count > 2 {
+                            Button("Ta bort alternativet", systemImage: "minus.circle") {
+                                update("optrm") { e in
+                                    guard case .poll(var p) = e.content, p.options.indices.contains(i) else { return }
+                                    p.options.remove(at: i)
+                                    if let c = p.correct { p.correct = c == i ? nil : (c > i ? c - 1 : c) }
+                                    e.content = .poll(p)
+                                }
+                            }
+                            .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.red)
+                        }
+                    }
+                }
+                if p.options.count < 6 {
+                    Button("Lägg till alternativ", systemImage: "plus") {
+                        update("optadd") { e in
+                            guard case .poll(var p) = e.content else { return }
+                            p.options.append("Alternativ \(p.options.count + 1)"); e.content = .poll(p)
+                        }
+                    }
+                }
+                Picker("Rätt svar", selection: poll("correct", \.correct, nil)) {
+                    Text("Inget (omröstning)").tag(Int?.none)
+                    ForEach(p.options.indices, id: \.self) { i in Text(p.options[i]).tag(Int?.some(i)) }
+                }
+                ColorPicker("Staplar", selection: color(poll("accent", \.accent, .black)))
+                ColorPicker("Text", selection: color(poll("textColor", \.textColor, .white)))
+                Text("Publiken röstar med mobilen: tryck Dela och presentera, så dyker en QR-kod upp i rutan. I ett quiz trycker du på rutan för att visa rätt svar.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .onChange(of: focusText, initial: true) { _, n in if n > 0 { textFocused = true } }
+        }
+
+        Section("När du presenterar") {
+            Picker("Visas", selection: bind("reveal", \.reveal, { $0.reveal = $1 })) {
+                Text("Direkt").tag(AppearEffect?.none)
+                ForEach(AppearEffect.allCases, id: \.self) { fx in
+                    Text("När jag trycker – \(fx.name.lowercased())").tag(AppearEffect?.some(fx))
+                }
+            }
+            Toggle("Försvinner när jag trycker", isOn: bind("vanish", \.vanishes, { $0.vanish = $1 ? true : nil }))
+            SoundControls(session: session, slideID: slide.id, element: element)
         }
 
         Section("Placering") {

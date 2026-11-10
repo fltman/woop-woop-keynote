@@ -11,9 +11,18 @@ public enum PPTXExporter {
         let slideNumber = Dictionary(uniqueKeysWithValues: deck.slides.enumerated().map { ($1.id, $0 + 1) })
 
         // Media: varje använd bild en gång, under sitt innehålls-ID.
+        // Ljud görs om till WAV (krav för klickljud) och får namnet <hash>.wav.
+        let soundIDs = Set(deck.slides.flatMap { $0.elements.compactMap(\.sound) })
         var media: [String: Data] = [:]
-        for id in deck.assetIDs.sorted() {
+        for id in deck.assetIDs.subtracting(soundIDs).sorted() {
             if let d = assets.data(id) { media[id] = d }
+        }
+        var sounds: [String: (name: String, data: Data)] = [:]
+        for id in soundIDs.sorted() {
+            guard let d = assets.data(id) else { continue }
+            let ext = (id as NSString).pathExtension
+            guard let wav = AudioConvert.wav(d, ext: ext) else { continue }
+            sounds[id] = ((id as NSString).deletingPathExtension + ".wav", wav)
         }
 
         zip.add("[Content_Types].xml", contentTypes(deck))
@@ -42,7 +51,7 @@ public enum PPTXExporter {
 
         for (i, slide) in deck.slides.enumerated() {
             let num = i + 1
-            var w = SlideWriter(slide: slide, media: media, slideNumber: slideNumber)
+            var w = SlideWriter(slide: slide, media: media, sounds: sounds.mapValues(\.name), slideNumber: slideNumber)
             let xml = w.write()
             var r = w.rels
             r.insert(("rId1", relLayout, "../slideLayouts/slideLayout1.xml", false), at: 0)
@@ -58,6 +67,7 @@ public enum PPTXExporter {
             zip.add("ppt/slides/_rels/slide\(num).xml.rels", rels(r))
         }
         for (id, d) in media.sorted(by: { $0.key < $1.key }) { zip.add("ppt/media/\(id)", d) }
+        for (_, snd) in sounds.sorted(by: { $0.key < $1.key }) { zip.add("ppt/media/\(snd.name)", snd.data) }
         return zip.finish()
     }
 
@@ -68,14 +78,27 @@ public enum PPTXExporter {
     struct SlideWriter {
         let slide: Slide
         let media: [String: Data]
+        /// ljud-asset-id → filnamn i ppt/media (WAV)
+        let sounds: [String: String]
         let slideNumber: [UUID: Int]
         var rels: [(String, String, String, Bool)] = []
         private var nextRel = 2
         private var nextShape = 2
         private var mediaRel: [String: String] = [:]
+        private var soundRels: [String: String] = [:]
+        /// element-id → shapens id i spTree (spid i animationerna) och om det är en p:sp
+        private var shapeIDs: [UUID: (id: Int, isSp: Bool)] = [:]
 
-        init(slide: Slide, media: [String: Data], slideNumber: [UUID: Int]) {
-            self.slide = slide; self.media = media; self.slideNumber = slideNumber
+        init(slide: Slide, media: [String: Data], sounds: [String: String] = [:], slideNumber: [UUID: Int]) {
+            self.slide = slide; self.media = media; self.sounds = sounds; self.slideNumber = slideNumber
+        }
+
+        mutating func soundRel(_ assetID: String) -> (rel: String, name: String)? {
+            guard let name = sounds[assetID] else { return nil }
+            if let r = soundRels[assetID] { return (r, name) }
+            let r = rel(relAudio, "../media/\(name)")
+            soundRels[assetID] = r
+            return (r, name)
         }
 
         mutating func rel(_ type: String, _ target: String, external: Bool = false) -> String {
@@ -100,6 +123,7 @@ public enum PPTXExporter {
             for e in slide.elements { s += element(e) }
             s += "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>"
             s += transition(slide.transition)
+            s += timing()
             s += "</p:sld>"
             return s
         }
@@ -114,35 +138,58 @@ public enum PPTXExporter {
             }
         }
 
-        mutating func hlink(_ link: ElementLink?) -> String {
-            guard let link else { return "" }
-            switch link {
-            case .nextSlide:
-                return "<a:hlinkClick r:id=\"\" action=\"ppaction://hlinkshowjump?jump=nextslide\"/>"
-            case .previousSlide:
-                return "<a:hlinkClick r:id=\"\" action=\"ppaction://hlinkshowjump?jump=previousslide\"/>"
-            case .slide(let id):
-                guard let n = slideNumber[id] else { return "" }
-                let r = rel(relSlide, "slide\(n).xml")
-                return "<a:hlinkClick r:id=\"\(r)\" action=\"ppaction://hlinksldjump\"/>"
-            case .url(let u):
-                let r = rel(relHyperlink, u.absoluteString, external: true)
-                return "<a:hlinkClick r:id=\"\(r)\"/>"
+        /// Klick på formen: länk och/eller ljud i samma hlinkClick (ljud = `<a:snd>`, kräver WAV).
+        mutating func hlink(_ link: ElementLink?, sound: String? = nil) -> String {
+            var snd = ""
+            if let id = sound, let (r, name) = soundRel(id) {
+                snd = "<a:snd r:embed=\"\(r)\" name=\"\(esc(name))\"/>"
             }
+            var open: String
+            switch link {
+            case nil:
+                guard !snd.isEmpty else { return "" }
+                open = "<a:hlinkClick r:id=\"\" action=\"ppaction://noaction\" highlightClick=\"1\""
+            case .nextSlide?:
+                open = "<a:hlinkClick r:id=\"\" action=\"ppaction://hlinkshowjump?jump=nextslide\""
+            case .previousSlide?:
+                open = "<a:hlinkClick r:id=\"\" action=\"ppaction://hlinkshowjump?jump=previousslide\""
+            case .slide(let id)?:
+                if let n = slideNumber[id] {
+                    let r = rel(relSlide, "slide\(n).xml")
+                    open = "<a:hlinkClick r:id=\"\(r)\" action=\"ppaction://hlinksldjump\""
+                } else if !snd.isEmpty {
+                    open = "<a:hlinkClick r:id=\"\" action=\"ppaction://noaction\" highlightClick=\"1\""
+                } else {
+                    return ""
+                }
+            case .url(let u)?:
+                let r = rel(relHyperlink, u.absoluteString, external: true)
+                open = "<a:hlinkClick r:id=\"\(r)\""
+            }
+            return snd.isEmpty ? open + "/>" : open + ">" + snd + "</a:hlinkClick>"
         }
 
         mutating func element(_ e: Element) -> String {
             let id = nextShape; nextShape += 1
-            let link = hlink(e.link)
+            let link = hlink(e.link, sound: e.sound)
             let cNvPr = { (name: String) in "<p:cNvPr id=\"\(id)\" name=\"\(esc(name)) \(id)\">\(link)</p:cNvPr>" }
-            switch e.content {
+            var content = e.content
+            // Omröstningar går inte att exportera levande: frågan och alternativen blir en textruta (CONTRACT §2).
+            if case .poll(let p) = content {
+                let size = max(min(e.frame.h / Double(p.options.count + 2) * 0.7, 72), 28)
+                content = .text(TextBox(text: p.asText, style: TextStyle(size: size, color: p.textColor)))
+            }
+            switch content {
+            case .poll: return ""
             case .text(let tb):
+                shapeIDs[e.id] = (id, true)
                 var s = "<p:sp><p:nvSpPr>\(cNvPr("Text"))<p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>"
                 s += "<p:spPr>\(xfrm(e))<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>"
                 s += textBody(tb)
                 s += "</p:sp>"
                 return s
             case .shape(let sh):
+                shapeIDs[e.id] = (id, true)
                 var s = "<p:sp><p:nvSpPr>\(cNvPr("Shape"))<p:cNvSpPr/><p:nvPr/></p:nvSpPr>"
                 s += "<p:spPr>\(xfrm(e))<a:prstGeom prst=\"\(sh.kind.pptxPreset)\"><a:avLst/></a:prstGeom>"
                 s += solidFill(sh.fill)
@@ -155,10 +202,93 @@ public enum PPTXExporter {
                 return s
             case .image(let im):
                 guard let r = imageRel(im.assetID) else { nextShape -= 1; return "" }
+                shapeIDs[e.id] = (id, false)
                 var s = "<p:pic><p:nvPicPr>\(cNvPr("Picture"))<p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>"
                 s += "<p:blipFill><a:blip r:embed=\"\(r)\"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>"
                 s += "<p:spPr>\(xfrm(e))<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>"
                 return s
+            }
+        }
+
+        /// "Visa när jag trycker" som PowerPoints klicksekvens: en klickgrupp per element i
+        /// `slide.revealOrder`. Formerna är synliga i själva XML:en; att de är dolda före klicket
+        /// kommer från entréanimationen (set style.visibility → visible).
+        mutating func timing() -> String {
+            let items = slide.revealOrder.compactMap { id -> (Element, Int, Bool)? in
+                guard let e = slide.element(id), e.reveal != nil, let sh = shapeIDs[id] else { return nil }
+                return (e, sh.id, sh.isSp)
+            }
+            guard !items.isEmpty else { return "" }
+            var ctn = 2   // 1 = tmRoot, 2 = mainSeq
+            func next() -> Int { ctn += 1; return ctn }
+            var clicks = ""
+            for (e, spid, isSp) in items {
+                let effect = e.reveal!
+                let tgt = "<p:tgtEl><p:spTgt spid=\"\(spid)\"/></p:tgtEl>"
+                let grp = isSp ? " grpId=\"0\"" : ""
+                let outer = next(), inner = next(), eff = next()
+                let (preset, subtype) = Self.preset(effect)
+                var behaviours = "<p:set><p:cBhvr><p:cTn id=\"\(next())\" dur=\"1\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst></p:cTn>\(tgt)<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val=\"visible\"/></p:to></p:set>"
+                func anim(_ attr: String, _ from: String, _ to: String) -> String {
+                    "<p:anim calcmode=\"lin\" valueType=\"num\"><p:cBhvr additive=\"base\"><p:cTn id=\"\(next())\" dur=\"500\" fill=\"hold\"/>\(tgt)<p:attrNameLst><p:attrName>\(attr)</p:attrName></p:attrNameLst></p:cBhvr><p:tavLst><p:tav tm=\"0\"><p:val>\(from)</p:val></p:tav><p:tav tm=\"100000\"><p:val>\(to)</p:val></p:tav></p:tavLst></p:anim>"
+                }
+                func str(_ v: String) -> String { "<p:strVal val=\"\(v)\"/>" }
+                let fadeIn = { "<p:animEffect transition=\"in\" filter=\"fade\"><p:cBhvr><p:cTn id=\"\(next())\" dur=\"500\"/>\(tgt)</p:cBhvr></p:animEffect>" }
+                switch effect {
+                case .fade:
+                    behaviours += fadeIn()
+                case .pop, .spin, .confetti:
+                    // Zoom (presetID 53, från objektets mitt): bredd/höjd från 0 + intoning.
+                    behaviours += anim("ppt_w", "<p:fltVal val=\"0\"/>", str("#ppt_w"))
+                    behaviours += anim("ppt_h", "<p:fltVal val=\"0\"/>", str("#ppt_h"))
+                    behaviours += fadeIn()
+                case .bounce:
+                    behaviours += anim("ppt_x", str("#ppt_x"), str("#ppt_x"))
+                    behaviours += anim("ppt_y", str("0-#ppt_h/2"), str("#ppt_y"))
+                case .flyUp:
+                    behaviours += anim("ppt_x", str("#ppt_x"), str("#ppt_x"))
+                    behaviours += anim("ppt_y", str("1+#ppt_h/2"), str("#ppt_y"))
+                case .flyFromLeft:
+                    behaviours += anim("ppt_x", str("0-#ppt_w/2"), str("#ppt_x"))
+                    behaviours += anim("ppt_y", str("#ppt_y"), str("#ppt_y"))
+                case .flyFromRight:
+                    behaviours += anim("ppt_x", str("1+#ppt_w/2"), str("#ppt_x"))
+                    behaviours += anim("ppt_y", str("#ppt_y"), str("#ppt_y"))
+                }
+                // Ljud när elementet visas (PowerPoints "ljud" under effektalternativ).
+                var sub = ""
+                if let sid = e.sound, let (r, name) = soundRel(sid) {
+                    sub = "<p:subTnLst><p:audio><p:cMediaNode><p:cTn id=\"\(next())\" display=\"0\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst></p:cTn><p:tgtEl><p:sndTgt r:embed=\"\(r)\" name=\"\(esc(name))\"/></p:tgtEl></p:cMediaNode></p:audio></p:subTnLst>"
+                }
+                clicks += "<p:par><p:cTn id=\"\(outer)\" fill=\"hold\"><p:stCondLst><p:cond delay=\"indefinite\"/></p:stCondLst><p:childTnLst>"
+                clicks += "<p:par><p:cTn id=\"\(inner)\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>"
+                clicks += "<p:par><p:cTn id=\"\(eff)\" presetID=\"\(preset)\" presetClass=\"entr\" presetSubtype=\"\(subtype)\" fill=\"hold\"\(grp) nodeType=\"clickEffect\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>\(behaviours)</p:childTnLst>\(sub)</p:cTn></p:par>"
+                clicks += "</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>"
+            }
+            var t = "<p:timing><p:tnLst><p:par><p:cTn id=\"1\" dur=\"indefinite\" restart=\"never\" nodeType=\"tmRoot\"><p:childTnLst>"
+            t += "<p:seq concurrent=\"1\" nextAc=\"seek\"><p:cTn id=\"2\" dur=\"indefinite\" nodeType=\"mainSeq\"><p:childTnLst>\(clicks)</p:childTnLst></p:cTn>"
+            t += "<p:prevCondLst><p:cond evt=\"onPrev\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>"
+            t += "<p:nextCondLst><p:cond evt=\"onNext\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>"
+            t += "</p:childTnLst></p:cTn></p:par></p:tnLst>"
+            let blds = items.filter { $0.2 }.map { e, spid, _ -> String in
+                if case .poll = e.content { return "<p:bldP spid=\"\(spid)\" grpId=\"0\"/>" }
+                if case .text = e.content { return "<p:bldP spid=\"\(spid)\" grpId=\"0\"/>" }
+                return "<p:bldP spid=\"\(spid)\" grpId=\"0\" animBg=\"1\"/>"
+            }
+            if !blds.isEmpty { t += "<p:bldLst>\(blds.joined())</p:bldLst>" }
+            t += "</p:timing>"
+            return t
+        }
+
+        /// PowerPoints entréförval: Tona (10), Flyg in (2: 4 = nerifrån, 8 = vänster, 2 = höger), Zooma (53, 16 = från mitten).
+        static func preset(_ e: AppearEffect) -> (Int, Int) {
+            switch e {
+            case .fade: (10, 0)
+            case .pop, .spin, .confetti: (53, 16)
+            case .bounce: (2, 1)
+            case .flyUp: (2, 4)
+            case .flyFromLeft: (2, 8)
+            case .flyFromRight: (2, 2)
             }
         }
 
@@ -264,6 +394,7 @@ public enum PPTXExporter {
     static let relHyperlink = relBase + "hyperlink"
     static let relNotesSlide = relBase + "notesSlide"
     static let relNotesMaster = relBase + "notesMaster"
+    static let relAudio = relBase + "audio"
 
     static func contentTypes(_ deck: Deck) -> String {
         let pml = "application/vnd.openxmlformats-officedocument.presentationml"
@@ -274,6 +405,7 @@ public enum PPTXExporter {
         s += "<Default Extension=\"jpg\" ContentType=\"image/jpeg\"/>"
         s += "<Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>"
         s += "<Default Extension=\"gif\" ContentType=\"image/gif\"/>"
+        s += "<Default Extension=\"wav\" ContentType=\"audio/wav\"/>"
         s += "<Override PartName=\"/ppt/presentation.xml\" ContentType=\"\(pml).presentation.main+xml\"/>"
         s += "<Override PartName=\"/ppt/presProps.xml\" ContentType=\"\(pml).presProps+xml\"/>"
         s += "<Override PartName=\"/ppt/tableStyles.xml\" ContentType=\"\(pml).tableStyles+xml\"/>"

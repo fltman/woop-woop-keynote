@@ -20,14 +20,19 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>GiphyAPIKey</key>
+	<string>$(GIPHY_API_KEY)</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_woopwoop._tcp</string>
+		<string>_woopwoop-tv._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Woop Woop hittar presentationer och Apple TV i hemnätet så att ni kan bygga tillsammans.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Woop Woop spelar in ljud som spelas när man trycker på något i presentationen.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>

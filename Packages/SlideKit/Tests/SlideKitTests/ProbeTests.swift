@@ -16,7 +16,7 @@ final class ProbeTests: XCTestCase {
             if host != nil { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        print("PROBE hittade:", browser.hosts.map(\.name))
+        print("PROBE hittade:", browser.hosts.map { "\($0.name) [id \($0.id)]" })
         let h = try XCTUnwrap(host, "ingen värd som heter något med \(want)")
         let s = Session(deck: Deck(title: "probe"), me: Peer(name: "Prob", color: .white, role: .stage),
                         assets: AssetStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("probe")))
@@ -26,6 +26,8 @@ final class ProbeTests: XCTestCase {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         print("PROBE länk:", s.link, "deck:", s.deck.title, "bilder:", s.deck.slides.count)
+        print("PROBE med:", s.peers.map { "\($0.name) (\($0.role.rawValue))" }, "presenterar:", s.present.isPresenting,
+              "publikadress:", s.live.audienceURL ?? "ingen")
         XCTAssertEqual(s.link, .connected)
         s.leave()
     }

@@ -31,6 +31,7 @@ struct StageView: View {
                 TimelineView(.animation(minimumInterval: 1 / 20, paused: !hasRecentEdits)) { ctx in
                     SlideView(slide: slide, assets: session.assets, drags: drags(on: slide), marks: marks(on: slide),
                               assetVersion: session.assetVersion, glows: glows(at: ctx.date))
+                        .environment(\.liveState, session.live)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .shadow(radius: 30)
                         .animation(.easeOut(duration: 0.08), value: drags(on: slide))
@@ -188,8 +189,10 @@ struct TVPresent: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        PresentationView(deck: session.deck, index: session.present.slideIndex,
-                         assets: session.assets, assetVersion: session.assetVersion)
+        // TV:n är presentationsskärmen: dolda element syns inte förrän de visas, och TV:n spelar ljuden.
+        PresentationView(deck: session.deck, state: session.present,
+                         assets: session.assets, assetVersion: session.assetVersion,
+                         presenter: false, playsSound: true, live: session.live)
             .focusable()
             .focused($focused)
             .onAppear { focused = true }

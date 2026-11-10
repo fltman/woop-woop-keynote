@@ -40,12 +40,16 @@ final class AppModel {
     /// Presentationen som är öppen i editorn.
     var session: Session?
     let browser = HostBrowser()
+    /// Apple TV-appar på hemnätet, som Spela kan erbjuda.
+    let tvs = HostBrowser(type: Bonjour.tvType)
     /// Presentationen jag gått med i, så att jag kan ansluta igen efter ett avbrott.
     private var joinedHost: String?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var wasInBackground = false
 
     init() {
+        browser.start()
+        tvs.start()
         // Försök igen var tredje sekund om kontakten med den som delar har tappats.
         Task { [weak self] in
             while true {
@@ -79,8 +83,8 @@ final class AppModel {
     }
 
     func rejoinIfLost() {
-        guard let s = session, s.role == .solo, case .lost = s.link, let name = joinedHost,
-              let h = browser.hosts.first(where: { $0.name == name }) else { return }
+        guard let s = session, s.role == .solo, !s.turnedAway, case .lost = s.link, let name = joinedHost,
+              let h = browser.hosts.first(where: { $0.id == name }) else { return }
         join(h)
     }
 
@@ -96,7 +100,7 @@ final class AppModel {
         let s = Session(deck: Deck(title: host.name), me: profile.peer, assets: library.assets)
         s.join(host.endpoint)
         session = s
-        joinedHost = host.name
+        joinedHost = host.id
     }
 
     func close() {
