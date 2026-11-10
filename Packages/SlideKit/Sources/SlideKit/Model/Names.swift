@@ -47,6 +47,8 @@ extension Content {
         case .image(let i): i.isPlaceholder ? ("en bildplats", "bildplatsen") : ("ett foto", "fotot")
         case .shape(let s): s.kind.forms
         case .poll(let p): p.correct == nil ? ("en omröstning", "omröstningen") : ("en quizfråga", "quizfrågan")
+        case .timer: ("en nedräkning", "nedräkningen")
+        case .chart: ("ett diagram", "diagrammet")
         }
     }
 }
@@ -68,11 +70,20 @@ extension AppearEffect {
 
 extension DeckTransition {
     public var name: String {
-        switch self { case .none: "Ingen"; case .fade: "Tona"; case .push: "Skjut"; case .wipe: "Svep" }
+        switch self {
+        case .none: "Ingen"; case .fade: "Tona"; case .push: "Skjut"; case .wipe: "Svep"
+        case .zoom: "Zooma"; case .flip: "Vänd blad"
+        }
     }
 }
 
 extension Element {
     /// "stjärnan", "texten", "fotot": så att presentatören får veta vad nästa tryck visar.
     public var definiteName: String { content.forms.1 }
+}
+
+extension Motion {
+    public var name: String {
+        switch self { case .wobble: "Gungar"; case .pulse: "Pulserar"; case .float: "Svävar"; case .spin: "Snurrar" }
+    }
 }

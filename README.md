@@ -23,6 +23,14 @@ and no accounts. The app's interface is in Swedish.
   votes in the browser on a small web page served by the sharing device.
 - **Content.** Text, shapes, photos, freehand drawings, paste from other apps, and GIF search
   through GIPHY (always `rating=g`), and images generated from a description (via OpenRouter).
+- **Quiz as a game.** Named players, points for correct and fast answers, a podium, a buzzer,
+  a spinning wheel and questions from the audience.
+- **More building blocks.** Charts, countdown timers, short video clips, sticky notes for
+  collaborators, a shared whiteboard on the TV, and a practice mode that times each slide.
+- **AI help (optional).** Rewrite text, draft a presentation from a topic, generate images and
+  backgrounds. Background removal runs on the device.
+- **iCloud.** Presentations are backed up to each person's own iCloud; generated images go to a
+  shared family library.
 - **Export.** `.pptx` (opens in PowerPoint, Keynote and Google Slides) and PDF.
 
 ## Build

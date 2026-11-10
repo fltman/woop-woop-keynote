@@ -44,6 +44,8 @@ public final class Session {
     public private(set) var assetVersion = 0
     public let assets: AssetStore
 
+    /// Värden gav mig presentationen: spara den som min egen.
+    @ObservationIgnored public var onGift: ((Deck) -> Void)?
     /// Anropas när decket ändrats och bör sparas (ensam eller värd).
     @ObservationIgnored public var onChange: ((Deck) -> Void)?
 
@@ -183,7 +185,8 @@ public final class Session {
     public func setPresent(_ s: PresentState) {
         // En ny presentation börjar med tomma omröstningar (annars ligger repetitionens röster kvar).
         if role != .client, s.isPresenting, !present.isPresenting {
-            ballots = [:]
+            ballots = [:]; answeredAt = [:]; pollOpened = [:]; scored = []; points = [:]
+            send(.scores([])); send(.showScores(false)); send(.buzzer(false)); send(.hideWheel); send(.showQuestion(nil))
             for p in live.votes.keys { send(.votes(poll: p, counts: [])) }
             for p in live.answers { send(.answer(poll: p, shown: false)) }
         }
@@ -205,10 +208,7 @@ public final class Session {
 
     /// Skickar något flyktigt till alla. Syns direkt hos mig själv.
     public func send(_ e: LiveEvent) {
-        switch e {
-        case .votes, .audience: guard role != .client else { return }
-        default: break
-        }
+        if e.hostOnly, role == .client { return }
         applyLive(e)
         switch role {
         case .solo: break
@@ -219,6 +219,8 @@ public final class Session {
 
     private func applyLive(_ e: LiveEvent) {
         live.apply(e)
+        // Rätt svar visas: dela ut poäng (bara den som räknar rösterna gör det).
+        if case .answer(let poll, true) = e, role != .client { scorePoll(poll) }
         if case .reaction = e {
             // Städa när de har flugit klart, så att vyerna kan sluta rita.
             DispatchQueue.main.asyncAfter(deadline: .now() + LiveState.reactionTime + 0.2) { [weak self] in
@@ -241,17 +243,82 @@ public final class Session {
     }
 
     /// En röst från publikens webbsida. En röst per person; man får byta tills rätt svar visas.
-    func castVote(poll: UUID, option: Int, voter: String) {
+    func castVote(poll: UUID, option: Int, voter: String, name: String? = nil) {
+        remember(voter, name)
         guard let cur = currentPoll, cur.id == poll, cur.box.options.indices.contains(option),
               !live.answers.contains(poll) else { return }
         ballots[poll, default: [:]][voter] = option
+        answeredAt[poll, default: [:]][voter] = Date()
+        if pollOpened[poll] == nil { pollOpened[poll] = Date() }
         var counts = [Int](repeating: 0, count: cur.box.options.count)
         for o in ballots[poll, default: [:]].values where counts.indices.contains(o) { counts[o] += 1 }
         send(.votes(poll: poll, counts: counts))
     }
 
+    // MARK: Publiken: namn, poäng, buzzer och frågor
+
+    @ObservationIgnored private var names: [String: String] = [:]          // väljare → namn
+    @ObservationIgnored private var points: [String: Int] = [:]            // väljare → poäng
+    @ObservationIgnored private var answeredAt: [UUID: [String: Date]] = [:]
+    @ObservationIgnored private var pollOpened: [UUID: Date] = [:]
+    @ObservationIgnored private var scored: Set<UUID> = []
+    @ObservationIgnored private var lastAsked: [String: Date] = [:]
+
+    private func remember(_ voter: String, _ name: String?) {
+        guard let n = name?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty else { return }
+        names[voter] = String(n.prefix(20))
+    }
+
+    /// 100 poäng för rätt svar och upp till 100 till för snabbhet (5 poäng mindre per sekund).
+    private func scorePoll(_ poll: UUID) {
+        guard !scored.contains(poll), let slide = confirmed.slides.first(where: { $0.element(poll) != nil }),
+              case .poll(let box)? = slide.element(poll)?.content, let correct = box.correct else { return }
+        scored.insert(poll)
+        let opened = pollOpened[poll] ?? Date()
+        for (voter, option) in ballots[poll] ?? [:] where option == correct {
+            let secs = (answeredAt[poll]?[voter] ?? Date()).timeIntervalSince(opened)
+            points[voter, default: 0] += 100 + max(0, 100 - Int(secs * 5))
+        }
+        publishScores()
+    }
+
+    private func publishScores() {
+        var list: [ScoreEntry] = []
+        for (voter, p) in points { list.append(ScoreEntry(name: names[voter] ?? "Okänd", points: p)) }
+        list.sort { (a: ScoreEntry, b: ScoreEntry) -> Bool in
+            if a.points != b.points { return a.points > b.points }
+            return a.name < b.name
+        }
+        send(.scores(Array(list.prefix(10))))
+    }
+
+    /// Buzzern: den första som trycker vinner.
+    func buzz(voter: String, name: String?) {
+        remember(voter, name)
+        guard live.buzzerArmed, live.buzzWinner == nil else { return }
+        send(.buzzed(names[voter] ?? "Någon"))
+    }
+
+    /// En fråga från publiken. Högst en var femte sekund per person.
+    func ask(_ text: String, voter: String, name: String?) {
+        remember(voter, name)
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let now = Date()
+        guard t.count >= 2, lastAsked[voter].map({ now.timeIntervalSince($0) > 5 }) ?? true else { return }
+        lastAsked[voter] = now
+        send(.question(AudienceQuestion(name: names[voter] ?? "Någon", text: String(t.prefix(200)))))
+    }
+
+    /// Namnen på publiken (för slumphjulet).
+    public var audienceNames: [String] { Array(Set(names.values)).sorted() }
+
     /// Det publikens sida visar (JSON).
-    func audienceState(voter: String) -> Data {
+    func audienceState(voter: String, name: String? = nil) -> Data {
+        remember(voter, name)
+        var extra: [String: Any] = ["buzzer": live.buzzerArmed, "points": points[voter] ?? 0]
+        if let w = live.buzzWinner { extra["winner"] = w }
+        if let n = names[voter] { extra["name"] = n }
+        if let rank = points.sorted(by: { $0.value > $1.value }).firstIndex(where: { $0.key == voter }) { extra["rank"] = rank + 1 }
         var poll: Any = NSNull()
         if let cur = currentPoll {
             let shown = live.answers.contains(cur.id)
@@ -260,7 +327,8 @@ public final class Session {
             if shown, let c = cur.box.correct { p["correct"] = c }
             poll = p
         }
-        return (try? JSONSerialization.data(withJSONObject: ["poll": poll])) ?? Data("{}".utf8)
+        extra["poll"] = poll
+        return (try? JSONSerialization.data(withJSONObject: extra)) ?? Data("{}".utf8)
     }
 
     @ObservationIgnored private var ballots: [UUID: [String: Int]] = [:]
@@ -269,8 +337,10 @@ public final class Session {
     private func startAudience() {
         let a = audience ?? AudienceServer()
         audience = a
-        a.state = { [weak self] v in self?.audienceState(voter: v) ?? Data("{}".utf8) }
-        a.vote = { [weak self] p, o, v in self?.castVote(poll: p, option: o, voter: v) }
+        a.state = { [weak self] v, n in self?.audienceState(voter: v, name: n) ?? Data("{}".utf8) }
+        a.vote = { [weak self] p, o, v, n in self?.castVote(poll: p, option: o, voter: v, name: n) }
+        a.buzz = { [weak self] v, n in self?.buzz(voter: v, name: n) }
+        a.ask = { [weak self] t, v, n in self?.ask(t, voter: v, name: n) }
         a.react = { [weak self] i in self?.send(.reaction(i)) }
         a.onReady = { [weak self] port in
             self?.send(.audience(url: LocalAddress.ipv4().map { "http://\($0):\(port)" }))
@@ -499,7 +569,16 @@ public final class Session {
         for (p, counts) in live.votes { c.send(.live(.votes(poll: p, counts: counts))) }
         for p in live.answers { c.send(.live(.answer(poll: p, shown: true))) }
         for s in live.ink { c.send(.live(.stroke(s))) }
+        c.send(.live(.scores(live.scores)))
+        if live.board { c.send(.live(.board(true))) }
+        for (e, end) in live.timers { c.send(.live(.timer(element: e, endsAt: end))) }
         broadcast(.peers(peers), except: cid)
+    }
+
+    /// Ger en kopia av presentationen till en av dem som är med. Den sparas i deras bibliotek.
+    public func give(to peer: UUID) {
+        guard role == .host, let cid = clientPeer.first(where: { $0.value == peer })?.key else { return }
+        clients[cid]?.send(.gift(confirmed))
     }
 
     private var lockEntries: [LockEntry] { locks.map { LockEntry(element: $0.key, peer: $0.value) } }
@@ -545,7 +624,7 @@ public final class Session {
             receiveAsset(id, data)
         case .live(let e):
             // Röster och adressen kommer bara från värden.
-            switch e { case .votes, .audience: return; default: break }
+            if e.hostOnly { return }
             applyLive(e)
             broadcast(.live(e), except: cid)
         default: break
@@ -667,6 +746,8 @@ public final class Session {
             for id in ids where !id.contains("/") { if let d = assets.data(id) { upstream?.send(.asset(id: id, data: d)) } }
         case .live(let e):
             applyLive(e)
+        case .gift(let d):
+            onGift?(d)
         case .bye(let reason):
             turnedAway = true
             link = .lost(reason)

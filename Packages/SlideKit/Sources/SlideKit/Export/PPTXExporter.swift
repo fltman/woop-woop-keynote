@@ -173,14 +173,24 @@ public enum PPTXExporter {
             let id = nextShape; nextShape += 1
             let link = hlink(e.link, sound: e.sound)
             let cNvPr = { (name: String) in "<p:cNvPr id=\"\(id)\" name=\"\(esc(name)) \(id)\">\(link)</p:cNvPr>" }
+            // Lappar är bara till för dem som bygger.
+            if e.isSticky { nextShape -= 1; return "" }
             var content = e.content
             // Omröstningar går inte att exportera levande: frågan och alternativen blir en textruta (CONTRACT §2).
             if case .poll(let p) = content {
                 let size = max(min(e.frame.h / Double(p.options.count + 2) * 0.7, 72), 28)
                 content = .text(TextBox(text: p.asText, style: TextStyle(size: size, color: p.textColor)))
             }
+            // Diagram och nedräkningar exporteras normalt som bilder (Deck.flattened). Det här är reserven.
+            if case .timer(let t) = content {
+                content = .text(TextBox(text: TimerBox.label(t.seconds), style: TextStyle(size: e.frame.h * 0.6, color: t.color, bold: true, align: .center)))
+            }
+            if case .chart(let c) = content {
+                let size = max(min(e.frame.h / Double(c.labels.count + 2) * 0.7, 64), 26)
+                content = .text(TextBox(text: c.asText, style: TextStyle(size: size, color: c.textColor)))
+            }
             switch content {
-            case .poll: return ""
+            case .poll, .timer, .chart: return ""
             case .text(let tb):
                 shapeIDs[e.id] = (id, true)
                 var s = "<p:sp><p:nvSpPr>\(cNvPr("Text"))<p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>"
@@ -320,6 +330,9 @@ public enum PPTXExporter {
             case .fade: return "<p:transition spd=\"med\"><p:fade/></p:transition>"
             case .push: return "<p:transition spd=\"med\"><p:push dir=\"l\"/></p:transition>"
             case .wipe: return "<p:transition spd=\"med\"><p:wipe dir=\"l\"/></p:transition>"
+            case .zoom: return "<p:transition spd=\"med\"><p:zoom/></p:transition>"
+            // "Vänd blad" finns inte i grundformatet: tona är närmast.
+            case .flip: return "<p:transition spd=\"med\"><p:fade/></p:transition>"
             }
         }
     }

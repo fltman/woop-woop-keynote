@@ -90,6 +90,22 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
     (CloudKits gemensamma databas) med beskrivningen och vem som gjorde den, så att alla i familjen
     kan återanvända den. Bara AI-bilder: foton, teckningar och presentationer lämnar aldrig hemnätet.
     Den som gjorde en bild kan ta bort den. Ett fel mot iCloud får aldrig hindra arbetet.
+20. **Säkerhetskopia i iCloud.** Varje persons presentationer kopieras till personens EGEN iCloud
+    (CloudKits privata databas) en stund efter varje ändring, med bilderna de använder. De går att
+    hämta hem på en ny enhet. Det här är ett medvetet undantag från §8: kopian ligger i barnets
+    eget iCloud-konto och delas inte med någon. Ett fel mot iCloud får aldrig störa arbetet.
+21. **Publiken tävlar.** Webbsidan tar ett namn. Rätt svar i ett quiz ger 100 poäng och upp till 100
+    till för snabbhet, och delas ut en gång, när rätt svar visas. Bara värden räknar. Prispall,
+    buzzer (först att trycka), slumphjul och publikfrågor läggs över presentationen och är flyktiga
+    (`LiveEvent`). Presentatören väljer vilka publikfrågor som visas.
+22. **Det som inte går att exportera plattas till.** Diagram och nedräkningar blir bilder av sig
+    själva, videoklipp blir sin stillbild, och lappar och tomma bildplatser tas bort
+    (`Deck.flattened`). Rörelse (gunga, pulsera …) och övergången "vänd blad" finns bara i appen.
+23. **Lappar** (`sticky`) är kommentarer till dem som bygger. De syns aldrig i presentationen.
+24. **Gemensam rityta.** När någon öppnar ritytan visar TV:n en tavla där alla ritar från sina
+    telefoner. Strecken är flyktiga tills någon väljer "Spara som bild".
+25. **AI med text.** Trollstaven i textrutor och utkastet från ett ämne skickar texten respektive
+    ämnet till en textmodell via OpenRouter. Utkast ska alltid uppmana till att kontrollera fakta.
 
 ## Faser
 
@@ -99,3 +115,5 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
    Visa när jag trycker, inträdeseffekter och ljud (§14). Klistra in och GIPHY (§13).
 4. Publiken deltar: omröstning och quiz via QR på TV:n, med en webbsida från värden (§17).
    Reaktioner, laserpekare, rita, ljudknappar och presentatörens skärm (§16).
+5. Tävling och samarbete (§21, §24), diagram, nedräkning, video, lappar, övningsläge, AI med text
+   och bild (§18, §25), familjens bildbibliotek (§19) och säkerhetskopia i iCloud (§20).

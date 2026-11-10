@@ -4,7 +4,7 @@ import Foundation
 /// med appen, så de finns på alla enheter utan att skickas över nätet. Saknas en fil används
 /// ett enklare ljud som räknas fram i koden.
 public enum Jingle: String, Codable, CaseIterable, Sendable {
-    case woop, drumroll, tada, applause, trombone, boing, fart
+    case woop, drumroll, tada, applause, trombone, boing, fart, buzzer
 
     public var name: String {
         switch self {
@@ -15,6 +15,7 @@ public enum Jingle: String, Codable, CaseIterable, Sendable {
         case .trombone: "Ledsen trombon"
         case .boing: "Boing"
         case .fart: "Pruttkudde"
+        case .buzzer: "Tiden är ute"
         }
     }
 
@@ -27,6 +28,7 @@ public enum Jingle: String, Codable, CaseIterable, Sendable {
         case .trombone: "📉"
         case .boing: "🌀"
         case .fart: "💨"
+        case .buzzer: "🚨"
         }
     }
 
@@ -113,6 +115,16 @@ public enum Jingle: String, Codable, CaseIterable, Sendable {
                 phase += f / sr
                 let pulse = (phase - floor(phase)) < 0.35 ? 1.0 : -0.4
                 out[i] = pulse * min(t / 0.02, 1) * min((0.9 - t) / 0.15, 1) * (0.7 + 0.3 * noise())
+            }
+        case .buzzer:
+            // Reserv om filen saknas: tre korta tjut.
+            out = buffer(1.2)
+            for k in 0..<3 {
+                let start = Int(Double(k) * 0.38 * sr)
+                for i in 0..<Int(0.26 * sr) where start + i < out.count {
+                    let t = Double(i) / sr
+                    out[start + i] = (sin(2 * .pi * 880 * t) > 0 ? 0.6 : -0.6) * min(t / 0.01, 1) * min((0.26 - t) / 0.02, 1)
+                }
             }
         case .boing:
             out = buffer(0.8)

@@ -69,9 +69,13 @@ enum AIImage {
 
     /// Vad trollstaven hjälper till med. Varje fält där man beskriver något för en modell får en egen instruktion.
     enum Purpose {
-        case image, imageWithReference
+        case image, imageWithReference, bullets, shorter, spelling, headline
         var instruction: String {
             switch self {
+            case .bullets: "Gör om texten till högst fyra korta punkter för en presentationsbild. Varje punkt börjar med • och står på egen rad. Svara bara med punkterna, på samma språk som texten."
+            case .shorter: "Korta ner texten till hälften utan att tappa det viktigaste. Behåll formatet (punkter förblir punkter). Svara bara med texten, på samma språk."
+            case .spelling: "Rätta stavfel och grammatik i texten utan att ändra innehåll, ton eller radbrytningar. Svara bara med den rättade texten."
+            case .headline: "Föreslå en kort, slagkraftig rubrik (högst sex ord) för en presentationsbild med det här innehållet. Svara bara med rubriken, utan citattecken, på samma språk som texten."
             case .image: """
                 Du hjälper barn och ungdomar 11–16 år att beskriva en bild som en bildmodell ska rita till en skolpresentation. \
                 Skriv om beskrivningen så att den blir tydligare och mer målande: motiv, miljö, ljus, stämning och bildvinkel. \
@@ -233,6 +237,8 @@ struct AIImageSheet: View {
     /// En bild att utgå från, t.ex. den som är markerad i redigeraren.
     var startReference: Data? = nil
     var startInLibrary = false
+    /// Lås formen (t.ex. bred för en bakgrund).
+    var fixedShape: AIImage.Shape? = nil
     var onPick: (Data) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(AppModel.self) private var model
@@ -260,7 +266,7 @@ struct AIImageSheet: View {
                     }
                 }
             }
-            .onAppear { if startInLibrary { showLibrary = true } }
+            .onAppear { if startInLibrary { showLibrary = true }; if let fixedShape { shape = fixedShape } }
             .navigationTitle("Gör en bild")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -303,7 +309,7 @@ struct AIImageSheet: View {
                 referenceRow
 
                 chips("Stil", AIImage.Style.allCases, selected: $style) { $0.name }
-                chips("Form", AIImage.Shape.allCases, selected: $shape) { $0.name }
+                if fixedShape == nil { chips("Form", AIImage.Shape.allCases, selected: $shape) { $0.name } }
 
                 if let problem { Label(problem, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.red) }
 
@@ -412,5 +418,57 @@ struct AIImageSheet: View {
         if let i = a.firstIndex(of: "-aiimage"), i + 1 < a.count, a[i + 1] != "bibliotek" { return a[i + 1] }
         #endif
         return ""
+    }
+}
+
+/// Ett utkast till en hel presentation från ett ämne: textmodellen föreslår bilder, vi bygger dem med mallarna.
+enum AIDraft {
+    static func make(topic: String, theme: Theme, key: String) async throws -> Deck {
+        let instruction = """
+        Du hjälper barn och ungdomar 11–16 år att komma igång med en skolpresentation. Gör ett utkast på svenska om ämnet \
+        som användaren skriver. Svara ENBART med JSON i formen \
+        {"title": "...", "slides": [{"layout": "...", "texts": ["...", "..."], "notes": "..."}]}. \
+        Fem till sju bilder. "texts" har ALLTID exakt två strängar. Tillåtna layouter och vad de två strängarna är: \
+        "title" [rubrik, underrubrik]; "titleAndText" [kort rubrik, EN sträng med tre punkter som var och en börjar med • och skiljs åt med radbrytning]; \
+        "textAndPicture" [kort rubrik, en eller två meningar]; "bigNumber" [en siffra eller ett tal, vad den betyder]; \
+        "quote" [en tankeväckande mening om ämnet, varifrån den kommer]; "thanks" [Tack!, en avslutande fråga]. \
+        Använd inte påhittade citat från namngivna personer. \
+        Första bilden ska vara "title" och sista "thanks". "notes" är en mening om vad man kan säga. \
+        Håll texterna korta och sanna; hitta inte på fakta du är osäker på.
+        """
+        var req = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 60
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": AIImage.textModel, "max_tokens": 3000,
+            "messages": [["role": "system", "content": instruction], ["role": "user", "content": String(topic.prefix(200))]],
+        ] as [String: Any])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw AIImage.Problem.http(status) }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = ((json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String,
+              let a = content.firstIndex(of: "{"), let b = content.lastIndex(of: "}"),
+              let draft = try? JSONSerialization.jsonObject(with: Data(content[a...b].utf8)) as? [String: Any],
+              let slides = draft["slides"] as? [[String: Any]], !slides.isEmpty else { throw AIImage.Problem.noText }
+        var deck = Deck(title: (draft["title"] as? String) ?? topic, slides: [])
+        for s in slides.prefix(8) {
+            let layout = SlideLayout(rawValue: s["layout"] as? String ?? "") ?? .titleAndText
+            var slide = layout.makeSlide(theme: theme)
+            var texts = s["texts"] as? [String] ?? []
+            // Citatlayoutens första text är själva citattecknet.
+            if layout == .quote, texts.first != "”" { texts.insert("”", at: 0) }
+            var i = 0
+            for j in slide.elements.indices {
+                guard i < texts.count, case .text(var tb) = slide.elements[j].content else { continue }
+                tb.text = texts[i]; i += 1
+                slide.elements[j].content = .text(tb)
+            }
+            slide.notes = s["notes"] as? String ?? ""
+            deck.slides.append(slide)
+        }
+        return deck
     }
 }

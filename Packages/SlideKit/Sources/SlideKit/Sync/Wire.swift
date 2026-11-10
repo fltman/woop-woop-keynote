@@ -137,10 +137,12 @@ public enum Wire: Codable, Sendable {
     case bye(reason: String)
     /// Telefon → TV: "visa den här presentationen" (namnet den delas under).
     case invite(host: String)
+    /// Värd → klient: "den här presentationen är din nu" (en egen kopia sparas hos mottagaren).
+    case gift(Deck)
     /// Det flyktiga under en presentation: reaktioner, laserpekare, ritade streck, ljudknappar, röster.
     case live(LiveEvent)
 
-    public static let protocolVersion = 3
+    public static let protocolVersion = 4
 }
 
 /// En punkt på bilden, i bildenheter.
@@ -174,6 +176,46 @@ public enum LiveEvent: Codable, Hashable, Sendable {
     case answer(poll: UUID, shown: Bool)
     /// Bara från värden: adressen publiken röstar på (QR-koden). nil = ingen.
     case audience(url: String?)
+    /// Bara från värden: poängställningen i quizet, bäst först.
+    case scores([ScoreEntry])
+    /// Visa eller göm prispallen på presentationsskärmen.
+    case showScores(Bool)
+    /// Starta (sluttid) eller nollställ (nil) en nedräkning.
+    case timer(element: UUID, endsAt: Date?)
+    /// Buzzern: på = publiken kan trycka. Först vinner.
+    case buzzer(Bool)
+    /// Bara från värden: vem som tryckte först.
+    case buzzed(String?)
+    /// Slumphjulet snurrar och stannar på `winner`.
+    case wheel(options: [String], winner: Int, nonce: UUID)
+    case hideWheel
+    /// Bara från värden: en fråga från publiken (till presentatörens lista).
+    case question(AudienceQuestion)
+    /// Visa en fråga på presentationsskärmen (nil = göm).
+    case showQuestion(AudienceQuestion?)
+    /// Den gemensamma ritytan: alla ritar, TV:n visar.
+    case board(Bool)
+}
+
+public struct ScoreEntry: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { name }
+    public var name: String
+    public var points: Int
+    public init(name: String, points: Int) { self.name = name; self.points = points }
+}
+
+public struct AudienceQuestion: Codable, Hashable, Identifiable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var text: String
+    public init(id: UUID = UUID(), name: String, text: String) { self.id = id; self.name = name; self.text = text }
+}
+
+public struct WheelSpin: Hashable, Sendable {
+    public var options: [String]
+    public var winner: Int
+    public var nonce: UUID
+    public var at = Date()
 }
 
 public struct Reaction: Identifiable, Hashable, Sendable {
@@ -197,6 +239,15 @@ public struct LiveState: Equatable, Sendable {
     public var votes: [UUID: [Int]] = [:]
     public var answers: Set<UUID> = []
     public var audienceURL: String?
+    public var scores: [ScoreEntry] = []
+    public var showScores = false
+    public var timers: [UUID: Date] = [:]
+    public var buzzerArmed = false
+    public var buzzWinner: String?
+    public var wheel: WheelSpin?
+    public var questions: [AudienceQuestion] = []
+    public var shownQuestion: AudienceQuestion?
+    public var board = false
     public init() {}
 
     mutating func apply(_ e: LiveEvent) {
@@ -208,12 +259,33 @@ public struct LiveState: Equatable, Sendable {
             if reactions.count < 40 { reactions.append(Reaction(emoji: Self.emoji[i])) }
         case .pointer(let p): pointer = p
         case .stroke(let s):
-            if let i = ink.firstIndex(where: { $0.id == s.id }) { ink[i] = s } else if ink.count < 200 { ink.append(s) }
+            if let i = ink.firstIndex(where: { $0.id == s.id }) { ink[i] = s } else if ink.count < 800 { ink.append(s) }
         case .clearInk: ink = []
         case .jingle(let j, let n): jingle = j; jingleNonce = n
         case .votes(let p, let c): votes[p] = c
         case .answer(let p, let shown): if shown { answers.insert(p) } else { answers.remove(p) }
         case .audience(let u): audienceURL = u
+        case .scores(let s): scores = s
+        case .showScores(let on): showScores = on
+        case .timer(let e, let end): timers[e] = end
+        case .buzzer(let on): buzzerArmed = on; buzzWinner = nil
+        case .buzzed(let name): buzzWinner = name; if name != nil { buzzerArmed = false }
+        case .wheel(let o, let w, let n):
+            if !o.isEmpty { wheel = WheelSpin(options: o, winner: min(max(w, 0), o.count - 1), nonce: n) }
+        case .hideWheel: wheel = nil
+        case .question(let q): if questions.count < 60, !questions.contains(where: { $0.id == q.id }) { questions.append(q) }
+        case .showQuestion(let q): shownQuestion = q
+        case .board(let on): board = on; if !on { ink = [] }
+        }
+    }
+}
+
+extension LiveEvent {
+    /// Det som bara värden får säga (den räknar röster och poäng och tar emot publiken).
+    var hostOnly: Bool {
+        switch self {
+        case .votes, .audience, .scores, .buzzed, .question: true
+        default: false
         }
     }
 }

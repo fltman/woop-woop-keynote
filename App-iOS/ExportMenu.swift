@@ -21,7 +21,9 @@ struct PPTXFile: Transferable {
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(exportedContentType: .pptx) { f in
             let url = exportURL(f.deck, ext: "pptx")
-            try PPTXExporter.export(f.deck, assets: f.assets).write(to: url)
+            // Diagram, nedräkningar och video blir bilder; lappar och tomma bildplatser tas bort.
+            let flat = await MainActor.run { f.deck.flattened(assets: f.assets) }
+            try PPTXExporter.export(flat, assets: f.assets).write(to: url)
             return SentTransferredFile(url)
         }
     }

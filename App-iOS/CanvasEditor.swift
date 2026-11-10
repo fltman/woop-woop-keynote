@@ -304,6 +304,8 @@ extension Element {
         case .shape(let s): s.kind.name
         case .image(let i): i.isPlaceholder ? "Bildplats, tryck för att lägga till en bild" : "Bild"
         case .poll(let p): "Omröstning: \(p.question)"
+        case .timer(let t): "Nedräkning, \(TimerBox.label(t.seconds))"
+        case .chart(let c): "Diagram: \(c.title)"
         }
     }
 }

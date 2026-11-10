@@ -173,6 +173,9 @@ struct TVRoot: View {
             if let s = model.session {
                 if s.present.isPresenting && s.link == .connected {
                     TVPresent(session: s)
+                } else if s.live.board && s.link == .connected {
+                    // Den gemensamma ritytan: alla ritar från sina telefoner.
+                    BoardSurface(live: s.live)
                 } else {
                     StageView(session: s) { model.leave() }
                 }

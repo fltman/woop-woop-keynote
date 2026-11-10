@@ -109,4 +109,45 @@ final class LiveTests: XCTestCase {
         XCTAssertTrue(host.live.ink.isEmpty); XCTAssertNil(host.live.pointer)
         host.stopHosting()
     }
+
+    /// Quiz med namn och poäng, buzzer och frågor från publiken, och att export plattar till det nya.
+    func testScoresBuzzerQuestionsAndFlatten() async throws {
+        var deck = Deck.new(title: "Tävling")
+        let poll = Element(frame: Frame(x: 100, y: 100, w: 1600, h: 800),
+                           content: .poll(PollBox(question: "?", options: ["A", "B"], correct: 1, accent: .black, textColor: .white)))
+        let timer = Element(frame: Frame(x: 0, y: 0, w: 300, h: 300), content: .timer(TimerBox(seconds: 30, color: .black)))
+        let chart = Element(frame: Frame(x: 0, y: 400, w: 800, h: 500),
+                            content: .chart(ChartBox(kind: .pie, title: "Glass", labels: ["Choklad", "Vanilj"], values: [3, 1], accent: .black, textColor: .black)))
+        let note = Element(frame: Frame(x: 0, y: 0, w: 300, h: 200), content: .text(TextBox(text: "Byt bild?")), sticky: true, author: "Leo")
+        deck.slides[0].elements += [poll, timer, chart, note]
+        let store = store()
+        let host = Session(deck: deck, me: Peer(name: "Ida", color: Peer.palette[0]), assets: store)
+        host.setPresent(PresentState(isPresenting: true, slideIndex: 0))
+        host.castVote(poll: poll.id, option: 1, voter: "a", name: "Leo")
+        host.castVote(poll: poll.id, option: 0, voter: "b", name: "Mio")
+        XCTAssertTrue(host.live.scores.isEmpty, "inga poäng förrän svaret visas")
+        host.send(.answer(poll: poll.id, shown: true))
+        XCTAssertEqual(host.live.scores.map(\.name), ["Leo"])
+        XCTAssertGreaterThanOrEqual(host.live.scores[0].points, 100)
+        host.send(.answer(poll: poll.id, shown: false)); host.send(.answer(poll: poll.id, shown: true))
+        XCTAssertLessThanOrEqual(host.live.scores[0].points, 200, "poängen delas bara ut en gång")
+        XCTAssertEqual(Set(host.audienceNames), ["Leo", "Mio"])
+
+        host.buzz(voter: "b", name: "Mio")
+        XCTAssertNil(host.live.buzzWinner, "buzzern är inte på")
+        host.send(.buzzer(true))
+        host.buzz(voter: "b", name: "Mio"); host.buzz(voter: "a", name: "Leo")
+        XCTAssertEqual(host.live.buzzWinner, "Mio")
+
+        host.ask("Hur varm är lava?", voter: "a", name: "Leo")
+        host.ask("En till direkt", voter: "a", name: "Leo")
+        XCTAssertEqual(host.live.questions.map(\.text), ["Hur varm är lava?"], "högst en fråga var femte sekund")
+
+        // Exporten: diagram och klocka blir bilder, lappen försvinner.
+        let flat = deck.flattened(assets: store)
+        XCTAssertEqual(flat.slides[0].elements.count, deck.slides[0].elements.count - 1)
+        XCTAssertFalse(flat.slides[0].elements.contains { $0.isTimer || $0.isSticky })
+        XCTAssertGreaterThan(try PPTXExporter.export(flat, assets: store).count, 10_000)
+        XCTAssertGreaterThan(try PPTXExporter.export(deck, assets: store).count, 10_000, "även oplattat ska gå att exportera")
+    }
 }

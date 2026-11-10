@@ -36,6 +36,7 @@ struct Profile: Codable, Equatable {
 @MainActor @Observable
 final class AppModel {
     let library = Library()
+    private(set) var backup: DeckBackup!
     var profile = Profile.load() { didSet { profile.save() } }
     /// Presentationen som är öppen i editorn.
     var session: Session?
@@ -49,6 +50,8 @@ final class AppModel {
     private let keeper = BackgroundKeeper()
 
     init() {
+        backup = DeckBackup(assets: library.assets)
+        library.backup = backup
         browser.start()
         tvs.start()
         // Appen sveps bort: säg adjö om vi hinner, så att TV:n går till väntläget direkt.
@@ -94,6 +97,8 @@ final class AppModel {
 
     /// Någon annan började dela efter mig: då tar den delningen över och min avslutas (CONTRACT §9).
     var takeover: String?
+    /// Namnet på en presentation jag just fick av den som delar.
+    var gift: String?
     func yieldToNewerShare() {
         guard let s = session, s.role == .host, let mine = s.sharedAt else { return }
         let t = mine.timeIntervalSince1970 * 1000
@@ -118,6 +123,12 @@ final class AppModel {
     func join(_ host: HostBrowser.Host) {
         close()
         let s = Session(deck: Deck(title: host.name), me: profile.peer, assets: library.assets)
+        // Den som delar kan ge mig presentationen: den sparas som min egen.
+        s.onGift = { [weak self] d in
+            guard let self else { return }
+            _ = self.library.saveCopy(of: d, suffix: "")
+            self.gift = d.title
+        }
         s.join(host.endpoint)
         session = s
         joinedHost = host.id

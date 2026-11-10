@@ -43,6 +43,34 @@ struct LibraryView: View {
                                 }
                         }
                     }
+                    // Presentationer som finns i min iCloud men inte på den här enheten (ny telefon, eller borttagna här).
+                    let onlyInCloud = model.backup.cloud.filter { c in !model.library.decks.contains { $0.id == c.id } }
+                    if !onlyInCloud.isEmpty {
+                        Text("I iCloud").font(.title2.bold())
+                        ForEach(onlyInCloud) { c in
+                            Button {
+                                Task { if let d = await model.backup.restore(c) { model.library.add(d) } }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "icloud.and.arrow.down").font(.title2)
+                                    VStack(alignment: .leading) {
+                                        Text(c.title).font(.headline)
+                                        Text(c.modified.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if model.backup.restoring == c.id { ProgressView() }
+                                }
+                                .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Ta bort ur iCloud", systemImage: "trash", role: .destructive) { model.backup.delete(c.id) }
+                            }
+                        }
+                    }
+                    if let p = model.backup.problem {
+                        Label(p, systemImage: "exclamationmark.icloud").font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
                 .padding(24)
             }
@@ -53,10 +81,15 @@ struct LibraryView: View {
                         .foregroundStyle(model.profile.peer.color.color)
                 }
             }
-            .sheet(isPresented: $choosingTheme) { ThemePicker { theme, template in
+            .sheet(isPresented: $choosingTheme) { ThemePicker(onDraft: { deck in
+                choosingTheme = false
+                model.library.add(deck)
+                model.open(deck)
+            }) { theme, template in
                 choosingTheme = false
                 model.open(model.library.create(theme: theme, template: template))
             } }
+            .task { await model.backup.refresh() }
             .sheet(isPresented: $editingProfile) { ProfileEditor() }
             .confirmationDialog("Ta bort \(toDelete?.title ?? "")?", isPresented: .init(get: { toDelete != nil }, set: { if !$0 { toDelete = nil } }),
                                 titleVisibility: .visible) {
@@ -93,9 +126,27 @@ struct DeckCard: View {
 
 /// Ny presentation: välj ett upplägg (färdiga bilder att fylla i) och sedan ett tema (färger och typsnitt).
 struct ThemePicker: View {
+    /// Ett AI-utkast är klart.
+    var onDraft: (Deck) -> Void = { _ in }
     var onPick: (Theme, DeckTemplate) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var template = DeckTemplate.empty
+    @State private var topic = ""
+    @State private var drafting = false
+    @State private var problem: String?
+
+    /// Med ett ämne ifyllt gör AI ett utkast i temat man väljer. Annars används upplägget.
+    private func choose(_ theme: Theme) {
+        let t = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count >= 2, let key = AIImage.apiKey else { return onPick(theme, template) }
+        drafting = true; problem = nil
+        Task {
+            defer { drafting = false }
+            do { onDraft(try await AIDraft.make(topic: t, theme: theme, key: key)) }
+            catch let p as AIImage.Problem { problem = p.localizedDescription }
+            catch { problem = "Ingen kontakt med tjänsten. Försök igen, eller töm ämnesfältet." }
+        }
+    }
     private let assets = AssetStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("theme-preview"))
     var body: some View {
         NavigationStack {
@@ -117,10 +168,21 @@ struct ThemePicker: View {
                         }
                         .padding(.horizontal)
                     }
-                    Text("2. Välj tema").font(.headline).padding(.horizontal).padding(.top, 6)
+                    if AIImage.apiKey != nil {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Eller: låt AI göra ett utkast").font(.headline)
+                            TextField("Skriv ett ämne, till exempel vulkaner", text: $topic)
+                                .padding(12).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                            Text("Ämnet skickas till en texttjänst på internet. Du får några bilder med text att ändra och bildplatser att fylla i. Kontrollera fakta själv.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let problem { Text(problem).font(.caption).foregroundStyle(.red) }
+                        }
+                        .padding(.horizontal)
+                    }
+                    Text(drafting ? "Skriver utkastet …" : "2. Välj tema").font(.headline).padding(.horizontal).padding(.top, 6)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 16) {
                         ForEach(Theme.all) { t in
-                            Button { onPick(t, template) } label: {
+                            Button { choose(t) } label: {
                                 VStack(spacing: 6) {
                                     // Förhandsvisningen är upplägget i det temat (andra bilden säger mer än rubriken).
                                     SlideView(slide: preview(t), assets: assets)
@@ -134,6 +196,7 @@ struct ThemePicker: View {
                         }
                     }
                     .padding(.horizontal)
+                    .disabled(drafting).opacity(drafting ? 0.5 : 1)
                 }
                 .padding(.vertical)
             }

@@ -230,6 +230,7 @@ struct PresentView: View {
             if !session.live.ink.isEmpty {
                 chip("Sudda", "eraser.fill", on: false) { session.send(.clearInk) }
             }
+            AudienceMenu(session: session)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(Jingle.allCases, id: \.self) { j in
@@ -307,6 +308,7 @@ struct PresentView: View {
         if !session.live.ink.isEmpty {
             round("eraser.fill", on: false, label: "Sudda allt") { session.send(.clearInk) }
         }
+        AudienceMenu(session: session)
         Menu {
             ForEach(Jingle.allCases, id: \.self) { j in
                 Button("\(j.emoji)  \(j.name)") { session.send(.jingle(j, nonce: UUID())) }
@@ -338,6 +340,10 @@ struct PresentView: View {
             return
         }
         if e.isQuiz { session.send(.answer(poll: e.id, shown: !session.live.answers.contains(e.id))) }
+        // Nedräkning: tryck startar, tryck igen nollställer.
+        if case .timer(let t) = e.content {
+            session.send(.timer(element: e.id, endsAt: session.live.timers[e.id] == nil ? Date().addingTimeInterval(Double(t.seconds)) : nil))
+        }
         if e.vanishes {
             let wasGone = s.gone.contains(e.id)
             s = s.togglingGone(e.id)

@@ -7,6 +7,8 @@ import SlideKit
 final class Library {
     private(set) var decks: [Deck] = []
     let assets: AssetStore
+    /// Säkerhetskopian i iCloud. Sätts av appen; nil i tester och förhandsvisningar.
+    @ObservationIgnored var backup: DeckBackup?
     private let dir: URL
     @ObservationIgnored private var dirty: [UUID: Deck] = [:]
     @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -29,6 +31,7 @@ final class Library {
     /// Sparar med en kort fördröjning, så att en skrivning inte blir hundra filskrivningar.
     func save(_ deck: Deck) {
         dirty[deck.id] = deck
+        backup?.schedule(deck)
         if let i = decks.firstIndex(where: { $0.id == deck.id }) { decks[i] = deck } else { decks.insert(deck, at: 0) }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
@@ -54,9 +57,9 @@ final class Library {
     }
 
     /// En kopia som blir min egen (t.ex. av en presentation jag gått med i).
-    func saveCopy(of deck: Deck) -> Deck {
+    func saveCopy(of deck: Deck, suffix: String = " (kopia)") -> Deck {
         var d = deck
-        d.id = UUID(); d.title = deck.title + " (kopia)"; d.modified = Date()
+        d.id = UUID(); d.title = deck.title + suffix; d.modified = Date()
         save(d); flush()
         return d
     }
@@ -64,5 +67,10 @@ final class Library {
     func delete(_ deck: Deck) {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(deck.id).json"))
         decks.removeAll { $0.id == deck.id }
+        dirty[deck.id] = nil
+        backup?.delete(deck.id)
     }
+
+    /// Lägger till en färdig presentation (ett AI-utkast eller en som hämtats från iCloud).
+    func add(_ deck: Deck) { save(deck); flush() }
 }

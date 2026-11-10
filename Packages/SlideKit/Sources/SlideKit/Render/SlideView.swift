@@ -67,6 +67,7 @@ public struct SlideCanvas: View {
     public var glows: [UUID: Glow] = [:]
     public var hidden: Set<UUID> = []
     public var ghosts = false
+    @Environment(\.playsMotion) private var playsMotion
 
     public init(slide: Slide, assets: AssetStore, drags: [UUID: DragPreview] = [:],
                 marks: [UUID: Peer] = [:], assetVersion: Int = 0, glows: [UUID: Glow] = [:],
@@ -87,6 +88,7 @@ public struct SlideCanvas: View {
                 ZStack {
                     if !isHidden || ghosts {
                         ElementView(element: e, assets: assets)
+                            .modifier(MotionModifier(motion: playsMotion ? e.motion : nil, seed: Double(abs(e.id.hashValue % 1000)) / 100))
                             .opacity(isHidden ? 0.3 : 1)
                             .overlay { if isHidden { GhostMark() } }
                             .transition(e.reveal?.transition ?? (e.vanishes ? AppearEffect.pop.transition : .identity))
@@ -197,6 +199,15 @@ public struct ElementView: View {
     public init(element: Element, assets: AssetStore) { self.element = element; self.assets = assets }
 
     public var body: some View {
+        if element.isSticky {
+            // En lapp till dem som bygger: syns aldrig i presentationen.
+            if showsPlaceholders { StickyView(element: element) }
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder private var content: some View {
         switch element.content {
         case .text(let t):
             TextBoxView(box: t, width: element.frame.w, height: element.frame.h)
@@ -205,6 +216,8 @@ public struct ElementView: View {
         case .image(let i):
             if i.isPlaceholder {
                 if showsPlaceholders { ImagePlaceholderView(width: element.frame.w, height: element.frame.h) }
+            } else if i.isVideo {
+                VideoElementView(assetID: i.assetID, assets: assets)
             } else if let anim = assets.animation(i.assetID) {
                 AnimatedImage(animation: anim)
             } else if let cg = assets.cgImage(i.assetID) {
@@ -215,6 +228,10 @@ public struct ElementView: View {
             }
         case .poll(let p):
             PollView(id: element.id, box: p, width: element.frame.w, height: element.frame.h)
+        case .timer(let t):
+            TimerView(id: element.id, box: t, width: element.frame.w, height: element.frame.h)
+        case .chart(let c):
+            ChartView(box: c, width: element.frame.w, height: element.frame.h)
         }
     }
 }

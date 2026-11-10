@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import ImageIO
 import UniformTypeIdentifiers
+import AVFoundation
 
 /// Innehållsadresserade bilder (CONTRACT §7). ID = sha256 av bytes + filändelse ("ab12….png").
 public final class AssetStore: @unchecked Sendable {
@@ -64,6 +65,12 @@ public final class AssetStore: @unchecked Sendable {
         return try put(data, id: Self.id(for: data, ext: ext.lowercased()))
     }
 
+    /// Ett färdigkomprimerat videoklipp (.mp4). Max 25 MB, så att det går att skicka till de andra.
+    public func importVideo(_ data: Data) throws -> String {
+        guard data.count <= 25 * 1024 * 1024 else { throw AssetError.tooLarge }
+        return try put(data, id: Self.id(for: data, ext: "mp4"))
+    }
+
     /// Rutor och tider för en animerad GIF, nil för stillbilder.
     public func animation(_ id: String) -> GIFAnimation? {
         guard id.hasSuffix(".gif") else { return nil }
@@ -78,6 +85,15 @@ public final class AssetStore: @unchecked Sendable {
     public func cgImage(_ id: String) -> CGImage? {
         lock.lock(); defer { lock.unlock() }
         if let c = cache[id] { return c }
+        if id.hasSuffix(".mp4") {
+            // Videoklipp: en stillbild ur början av klippet.
+            let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url(id)))
+            gen.appliesPreferredTrackTransform = true
+            gen.maximumSize = CGSize(width: 1920, height: 1920)
+            guard let img = try? gen.copyCGImage(at: CMTime(seconds: 0.1, preferredTimescale: 600), actualTime: nil) else { return nil }
+            cache[id] = img
+            return img
+        }
         guard let d = data(id), let src = CGImageSourceCreateWithData(d as CFData, nil),
               let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
         cache[id] = img

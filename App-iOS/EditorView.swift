@@ -23,6 +23,8 @@ struct EditorView: View {
     @State private var pickingPhoto = false
     @State private var showCamera = false
     @State private var notice: String?
+    @State private var practicing = false
+    @State private var showBoard = false
     @State private var choosingScreen = false
     @State private var focusText = 0
 
@@ -47,11 +49,21 @@ struct EditorView: View {
             .toolbarRole(.editor)
         }
         .fullScreenCover(isPresented: $presenting) { PresentView(session: session) }
+        .fullScreenCover(isPresented: $practicing) {
+            PracticeView(deck: deck, assets: session.assets, startAt: currentSlide.flatMap { deck.slideIndex($0) } ?? 0)
+        }
+        .sheet(isPresented: $showBoard) {
+            BoardView(session: session, onSave: { png, frame in selection = nil; placeDrawing(png, frame) })
+        }
+        .onChange(of: session.live.board) { _, on in if on { showBoard = true } }
         .confirmationDialog("Var vill du visa presentationen?", isPresented: $choosingScreen, titleVisibility: .visible) {
-            ForEach(model.tvs.hosts) { tv in
-                Button("\(tv.name) (Apple TV)") { presentOn(tv) }
+            if session.role != .client {
+                ForEach(model.tvs.hosts) { tv in
+                    Button("\(tv.name) (Apple TV)") { presentOn(tv) }
+                }
             }
             Button("Här på \(UIDevice.current.userInterfaceIdiom == .pad ? "iPaden" : "telefonen")") { startPresenting() }
+            Button("Öva (visas inte för någon annan)") { selection = nil; practicing = true }
             Button("Avbryt", role: .cancel) {}
         } message: {
             Text("På Apple TV blir din skärm fjärrkontroll och visar det som är dolt.")
@@ -93,6 +105,9 @@ struct EditorView: View {
         .alert("Din delning avslutades", isPresented: .init(get: { model.takeover != nil }, set: { if !$0 { model.takeover = nil } })) {
             Button("OK") {}
         } message: { Text("»\(model.takeover ?? "")« började delas och tog över. Tryck Dela om du vill ta tillbaka TV:n.") }
+        .alert("Du fick en presentation!", isPresented: .init(get: { model.gift != nil }, set: { if !$0 { model.gift = nil } })) {
+            Button("OK") {}
+        } message: { Text("»\(model.gift ?? "")« ligger nu bland dina presentationer.") }
         .onChange(of: selection) { _, new in session.select(new) }
         // Skärmen får inte somna medan man delar: då pausar iOS appen och TV:n tappar kontakten.
         .onChange(of: session.role, initial: true) { _, r in UIApplication.shared.isIdleTimerDisabled = r == .host }
@@ -120,6 +135,12 @@ struct EditorView: View {
             #endif
             session.setPresence(slide: currentSlide)
             #if DEBUG
+            // -extras: ett diagram med formatpanelen öppen (för simulatorn).
+            if ProcessInfo.processInfo.arguments.contains("-extras") {
+                if deck.slides.count > 2 { currentSlide = deck.slides[2].id }
+                addChart(); addTimer(); addSticky()
+                showInspector = true
+            }
             // -placeholder: en bild med bildplats, markerad, med källmenyn öppen (för simulatorn).
             if ProcessInfo.processInfo.arguments.contains("-placeholder") {
                 let s = SlideLayout.textAndPicture.makeSlide(theme: Theme.all[0])
@@ -222,14 +243,17 @@ struct EditorView: View {
                     Button(k.name, systemImage: k.symbol) { addShape(k) }
                 }
             } label: { Label("Form", systemImage: "star.square.on.square") }
-            PhotosPicker(selection: $photo, matching: .images) { Label("Bild", systemImage: "photo") }
+            PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) { Label("Bild eller video", systemImage: "photo") }
             Button { showGiphy = true } label: { Label("GIF", systemImage: "sparkles") }
             Button { aiStartsInLibrary = false; showAI = true } label: { Label("Gör en bild med AI", systemImage: "wand.and.stars") }
             Button { addPlaceholder() } label: { Label("Bildplats", systemImage: "photo.badge.plus") }
+            Button { addChart() } label: { Label("Diagram", systemImage: "chart.pie.fill") }
+            Button { addSticky() } label: { Label("Lapp till de andra", systemImage: "note.text.badge.plus") }
             Button { selection = nil; drawing = true } label: { Label("Rita", systemImage: "pencil.tip.crop.circle") }
             Menu {
                 Button("Omröstning", systemImage: "chart.bar.fill") { addPoll(quiz: false) }
                 Button("Quizfråga", systemImage: "checkmark.seal.fill") { addPoll(quiz: true) }
+                Button("Nedräkning", systemImage: "timer") { addTimer() }
             } label: { Label("Fråga publiken", systemImage: "chart.bar.fill") }
             PasteButton(supportedContentTypes: [.image, .plainText]) { providers in
                 Task { await paste(providers) }
@@ -298,9 +322,44 @@ struct EditorView: View {
     }
 
     private func addPhoto(_ item: PhotosPickerItem?) async {
-        guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
+        guard let item else { return }
         photo = nil
+        // Videoklipp komprimeras först (högst 20 sekunder), så att de går att skicka till de andra.
+        if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+            guard let movie = try? await item.loadTransferable(type: MovieFile.self) else { return }
+            defer { try? FileManager.default.removeItem(at: movie.url) }
+            guard let mp4 = await VideoImport.mp4(from: movie.url), let id = try? session.assets.importVideo(mp4) else {
+                notice = "Det gick inte att lägga in klippet. Prova ett kortare."
+                return
+            }
+            let (pw, ph) = session.assets.pixelSize(id) ?? (16, 9)
+            let k = min(1100 / Double(pw), 700 / Double(ph))
+            place(Element(frame: centered(w: Double(pw) * k, h: Double(ph) * k), content: .image(ImageBox(assetID: id))))
+            return
+        }
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
         placeImage(data)
+    }
+
+    private func addTimer() {
+        guard let s = slide else { return }
+        place(Element(frame: centered(w: 420, h: 420), content: .timer(TimerBox(seconds: 30, color: Theme.inferred(from: s).title.color))))
+    }
+
+    private func addChart() {
+        guard let s = slide else { return }
+        let theme = Theme.inferred(from: s)
+        place(Element(frame: Frame(x: 360, y: 220, w: 1200, h: 700),
+                      content: .chart(ChartBox(title: "Mitt diagram", labels: ["Ett", "Två", "Tre"], values: [3, 5, 2],
+                                               accent: theme.accent, textColor: theme.body.color))))
+    }
+
+    /// En gul lapp som bara syns när man bygger: "byt den här bilden?".
+    private func addSticky() {
+        place(Element(frame: centered(w: 460, h: 300), rotation: -3,
+                      content: .text(TextBox(text: "Skriv en lapp till de andra")), sticky: true, author: session.me.name))
+        focusText += 1
+        if hSize != .regular { showInspector = true }
     }
 
     /// En tom bildplats att fylla senare (eller låta någon annan fylla).
@@ -354,7 +413,7 @@ struct EditorView: View {
 
     /// Spela: finns det en Apple TV med Woop Woop öppen får man välja den. Annars presenterar vi här.
     private func play() {
-        if model.tvs.hosts.isEmpty || session.role == .client { startPresenting() } else { choosingScreen = true }
+        choosingScreen = true
     }
 
     /// Visa på en Apple TV: dela (om vi inte redan gör det), be just den TV:n ansluta och starta.
@@ -420,6 +479,11 @@ struct StatusBanner: View {
                 }
                 .padding(.horizontal).padding(.vertical, 6)
                 .background(.bar)
+                if session.live.board {
+                    Label("Ritytan är öppen – alla kan rita på TV:n", systemImage: "scribble.variable")
+                        .font(.footnote.bold()).frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .foregroundStyle(.white).background(Color.purple)
+                }
                 if session.present.isPresenting {
                     // Publiken hejar: reaktionerna flyger upp över presentationen på TV:n.
                     HStack(spacing: 6) {
@@ -472,8 +536,22 @@ struct CollabMenu: View {
                 Section("\(session.peers.count - 1) till är med") {
                     ForEach(session.peers.filter { $0.id != session.me.id }) { p in Text(p.name) }
                 }
+                Button(session.live.board ? "Stäng ritytan" : "Rita tillsammans på TV:n", systemImage: "scribble.variable") {
+                    session.send(.board(!session.live.board))
+                }
+                let others = session.peers.filter { $0.id != session.me.id && $0.role == .editor }
+                if !others.isEmpty {
+                    Menu("Ge en kopia till …", systemImage: "gift") {
+                        ForEach(others) { p in Button(p.name) { session.give(to: p.id) } }
+                    }
+                }
                 Button("Sluta dela", systemImage: "xmark.circle", role: .destructive) { session.stopHosting() }
             case .client:
+                if session.live.board {
+                    Button("Stäng ritytan", systemImage: "scribble.variable") { session.send(.board(false)) }
+                } else {
+                    Button("Rita tillsammans på TV:n", systemImage: "scribble.variable") { session.send(.board(true)) }
+                }
                 Button("Spara en egen kopia", systemImage: "square.and.arrow.down") {
                     _ = model.library.saveCopy(of: session.deck)
                 }

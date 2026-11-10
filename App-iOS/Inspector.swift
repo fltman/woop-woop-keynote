@@ -36,6 +36,8 @@ struct ElementInspector: View {
     var focusText: Int
     var onDeleted: () -> Void
     @FocusState private var textFocused: Bool
+    @State private var rewriting = false
+    @State private var rewriteProblem: String?
 
     /// Ändrar elementet som det ser ut JUST NU (inte som det såg ut när vyn ritades).
     private func update(_ key: String, _ change: (inout Element) -> Void) {
@@ -56,6 +58,45 @@ struct ElementInspector: View {
     private func poll<T>(_ key: String, _ kp: WritableKeyPath<PollBox, T>, _ fallback: T) -> Binding<T> {
         bind(key, { e in if case .poll(let p) = e.content { p[keyPath: kp] } else { fallback } },
              { e, v in if case .poll(var p) = e.content { p[keyPath: kp] = v; e.content = .poll(p) } })
+    }
+
+    private func chart<T>(_ key: String, _ kp: WritableKeyPath<ChartBox, T>, _ fallback: T) -> Binding<T> {
+        bind(key, { e in if case .chart(let c) = e.content { c[keyPath: kp] } else { fallback } },
+             { e, v in if case .chart(var c) = e.content { c[keyPath: kp] = v; e.content = .chart(c) } })
+    }
+
+    /// Trollstaven: skriver om textrutans text. Det blir ett vanligt ångra-steg.
+    private func rewrite(_ purpose: AIImage.Purpose, _ key: String) {
+        guard case .text(let tb) = element.content, !tb.text.isEmpty else { return }
+        rewriting = true; rewriteProblem = nil
+        Task {
+            defer { rewriting = false }
+            do {
+                let new = try await AIImage.refine(tb.text, purpose: purpose, key: key)
+                update("ai-\(UUID())") { e in if case .text(var t) = e.content { t.text = new; e.content = .text(t) } }
+            } catch let p as AIImage.Problem { rewriteProblem = p.localizedDescription }
+            catch { rewriteProblem = "Ingen kontakt med tjänsten. Försök igen." }
+        }
+    }
+
+    /// Klipper ut motivet på enheten och byter bilden mot den utklippta. Ångra tar tillbaka.
+    private func removeBackground(_ box: ImageBox) {
+        guard let data = session.assets.data(box.assetID) else { return }
+        rewriting = true; rewriteProblem = nil
+        Task {
+            defer { rewriting = false }
+            guard let cut = await BackgroundRemover.remove(data), let id = try? session.assets.importImage(cut),
+                  let (pw, ph) = session.assets.pixelSize(id) else {
+                rewriteProblem = "Hittade inget tydligt motiv att klippa ut."
+                return
+            }
+            update("cut-\(UUID())") { e in
+                // Det utklippta motivet är mindre än originalet: passa in det i samma ruta.
+                let f = e.frame, k = min(f.w / Double(pw), f.h / Double(ph))
+                e.frame = Frame(x: f.midX - Double(pw) * k / 2, y: f.midY - Double(ph) * k / 2, w: Double(pw) * k, h: Double(ph) * k)
+                e.content = .image(ImageBox(assetID: id))
+            }
+        }
     }
 
     private func shape<T>(_ key: String, _ kp: WritableKeyPath<ShapeBox, T>, _ fallback: T) -> Binding<T> {
@@ -93,6 +134,19 @@ struct ElementInspector: View {
                     Image(systemName: "text.alignright").tag(TextAlign.trailing)
                 }
                 .pickerStyle(.segmented)
+                if let key = AIImage.apiKey {
+                    // Trollstaven för text: skriver om det som står i rutan. Ångra tar tillbaka.
+                    Menu {
+                        Button("Gör om till punkter", systemImage: "list.bullet") { rewrite(.bullets, key) }
+                        Button("Gör kortare", systemImage: "arrow.down.right.and.arrow.up.left") { rewrite(.shorter, key) }
+                        Button("Rätta stavningen", systemImage: "checkmark.circle") { rewrite(.spelling, key) }
+                        Button("Föreslå en rubrik", systemImage: "textformat.size") { rewrite(.headline, key) }
+                    } label: {
+                        Label(rewriting ? "Skriver om …" : "Hjälp med texten", systemImage: "wand.and.stars")
+                    }
+                    .disabled(rewriting)
+                    if let rewriteProblem { Text(rewriteProblem).font(.footnote).foregroundStyle(.red) }
+                }
             }
             .onChange(of: focusText, initial: true) { _, n in if n > 0 { textFocused = true } }
         case .shape:
@@ -108,8 +162,67 @@ struct ElementInspector: View {
                     Slider(value: shape("strokeWidth", \.strokeWidth, 0), in: 2...60) { Text("Kantbredd") }
                 }
             }
-        case .image:
-            EmptyView()
+        case .image(let box):
+            if !box.isPlaceholder && !box.isVideo && !box.assetID.hasSuffix(".gif") {
+                Section("Bild") {
+                    Button { removeBackground(box) } label: {
+                        Label(rewriting ? "Tar bort bakgrunden …" : "Ta bort bakgrunden", systemImage: "person.and.background.dotted")
+                    }
+                    .disabled(rewriting)
+                    if let rewriteProblem { Text(rewriteProblem).font(.footnote).foregroundStyle(.red) }
+                }
+            }
+        case .timer(let t):
+            Section("Nedräkning") {
+                Stepper("Tid: \(TimerBox.label(t.seconds))", value: bind("seconds", { e in
+                    if case .timer(let t) = e.content { t.seconds } else { 30 }
+                }, { e, v in if case .timer(var t) = e.content { t.seconds = v; e.content = .timer(t) } }), in: 5...600, step: 5)
+                ColorPicker("Färg", selection: color(bind("tcolor", { e in
+                    if case .timer(let t) = e.content { t.color } else { .white }
+                }, { e, v in if case .timer(var t) = e.content { t.color = v; e.content = .timer(t) } })))
+                Text("Tryck på klockan när du presenterar för att starta den. Ett tryck till nollställer.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        case .chart(let c):
+            Section("Diagram") {
+                Picker("Sort", selection: chart("kind", \.kind, .bar)) {
+                    Text("Staplar").tag(ChartBox.Kind.bar)
+                    Text("Cirkel").tag(ChartBox.Kind.pie)
+                }
+                .pickerStyle(.segmented)
+                TextField("Rubrik", text: chart("title", \.title, ""))
+                ForEach(c.labels.indices, id: \.self) { i in
+                    HStack {
+                        TextField("Namn", text: bind("cl\(i)", { e in
+                            if case .chart(let c) = e.content, c.labels.indices.contains(i) { c.labels[i] } else { "" }
+                        }, { e, v in if case .chart(var c) = e.content, c.labels.indices.contains(i) { c.labels[i] = v; e.content = .chart(c) } }))
+                        TextField("Värde", value: bind("cv\(i)", { e in
+                            if case .chart(let c) = e.content, c.values.indices.contains(i) { c.values[i] } else { 0.0 }
+                        }, { e, v in if case .chart(var c) = e.content, c.values.indices.contains(i) { c.values[i] = v; e.content = .chart(c) } }),
+                                  format: .number)
+                            .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 90)
+                        if c.labels.count > 2 {
+                            Button("Ta bort raden", systemImage: "minus.circle") {
+                                update("crm") { e in
+                                    guard case .chart(var c) = e.content, c.labels.indices.contains(i), c.values.indices.contains(i) else { return }
+                                    c.labels.remove(at: i); c.values.remove(at: i); e.content = .chart(c)
+                                }
+                            }
+                            .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.red)
+                        }
+                    }
+                }
+                if c.labels.count < 8 {
+                    Button("Lägg till rad", systemImage: "plus") {
+                        update("cadd") { e in
+                            guard case .chart(var c) = e.content else { return }
+                            c.labels.append("Ny"); c.values.append(1); e.content = .chart(c)
+                        }
+                    }
+                }
+                ColorPicker("Första färgen", selection: color(chart("accent", \.accent, .black)))
+                ColorPicker("Text", selection: color(chart("ctext", \.textColor, .white)))
+            }
         case .poll(let p):
             Section(p.correct == nil ? "Omröstning" : "Quiz") {
                 TextField("Fråga", text: poll("question", \.question, ""), axis: .vertical)
@@ -163,6 +276,10 @@ struct ElementInspector: View {
                 }
             }
             Toggle("Försvinner när jag trycker", isOn: bind("vanish", \.vanishes, { $0.vanish = $1 ? true : nil }))
+            Picker("Rör sig", selection: bind("motion", \.motion, { $0.motion = $1 })) {
+                Text("Står still").tag(Motion?.none)
+                ForEach(Motion.allCases, id: \.self) { m in Text(m.name).tag(Motion?.some(m)) }
+            }
             SoundControls(session: session, slideID: slide.id, element: element)
         }
 
@@ -220,6 +337,7 @@ struct SlideInspector: View {
     let session: Session
     let slide: Slide
     @State private var photo: PhotosPickerItem?
+    @State private var makingBackground = false
 
     private func set(_ key: String, bg: Fill? = nil, notes: String? = nil, transition: DeckTransition? = nil) {
         guard let s = session.deck.slide(slide.id) else { return }
@@ -269,6 +387,14 @@ struct SlideInspector: View {
                 EmptyView()
             }
             PhotosPicker(selection: $photo, matching: .images) { Label("Välj en bild som bakgrund", systemImage: "photo") }
+            if AIImage.apiKey != nil {
+                Button { makingBackground = true } label: { Label("Gör en bakgrund med AI", systemImage: "wand.and.stars") }
+                    .sheet(isPresented: $makingBackground) {
+                        AIImageSheet(fixedShape: .wide) { data in
+                            if let id = try? session.assets.importImage(data) { set("bgimage", bg: .image(assetID: id)) }
+                        }
+                    }
+            }
         }
         Section("Övergång till den här bilden") {
             Picker("Övergång", selection: Binding(get: { slide.transition }, set: { set("tr", transition: $0) })) {

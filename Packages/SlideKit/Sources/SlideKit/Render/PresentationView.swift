@@ -20,6 +20,7 @@ public struct PresentationView: View {
     public var inkColor: RGBA
     public var onLive: ((LiveEvent) -> Void)?
     @State private var bursts: [Burst] = []
+    @State private var alarms: [UUID: Date] = [:]
 
     @State private var shown: Int
     /// Bilden vi lämnar, medan bytet pågår.
@@ -58,16 +59,45 @@ public struct PresentationView: View {
                 if let l = leaving, let slide = deck.slides[safe: l] {
                     slideView(slide, tappable: false)
                         .offset(x: outgoingOffset(w))
+                        .scaleEffect(kind == .zoom ? 1 + 0.5 * progress : 1)
+                        .opacity(kind == .zoom ? 1 - progress : (kind == .flip && progress > 0.5 ? 0 : 1))
+                        .rotation3DEffect(.degrees(kind == .flip ? -180 * min(progress, 0.5) : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.4)
                 }
                 if let slide = deck.slides[safe: shown] {
                     slideView(slide, tappable: true)
                         .offset(x: incomingOffset(w))
-                        .opacity(kind == .fade && leaving != nil ? progress : 1)
+                        .opacity(leaving == nil ? 1 : (kind == .fade || kind == .zoom ? progress : (kind == .flip && progress < 0.5 ? 0 : 1)))
+                        .scaleEffect(kind == .zoom && leaving != nil ? 0.6 + 0.4 * progress : 1)
+                        .rotation3DEffect(.degrees(kind == .flip && leaving != nil ? 180 * (1 - max(progress, 0.5)) : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.4)
                 }
+                // Det som läggs över bilden: rityta, hjul, buzzer, publikfråga, prispall och reaktioner.
+                if live.board { BoardSurface(live: live) }
+                if let wheel = live.wheel { WheelOverlay(spin: wheel).id(wheel.nonce) }
+                if live.buzzerArmed || live.buzzWinner != nil { BuzzOverlay(armed: live.buzzerArmed, winner: live.buzzWinner) }
+                if let q = live.shownQuestion { QuestionOverlay(question: q) }
+                if live.showScores { ScoreboardOverlay(scores: live.scores) }
                 ReactionsLayer(reactions: live.reactions)
             }
         }
         .ignoresSafeArea()
+        .animation(.spring(duration: 0.4), value: [live.showScores, live.buzzerArmed, live.buzzWinner != nil, live.shownQuestion != nil, live.wheel != nil, live.board])
+        .onChange(of: live.wheel?.nonce) { _, n in
+            // Trumvirvel medan hjulet snurrar, fanfar när det stannar.
+            guard playsSound, let n else { return }
+            SoundPlayer.shared.play(.drumroll, nonce: n)
+            DispatchQueue.main.asyncAfter(deadline: .now() + WheelOverlay.duration) { SoundPlayer.shared.play(.tada, nonce: UUID()) }
+        }
+        .onChange(of: live.buzzWinner) { _, w in if playsSound, w != nil { SoundPlayer.shared.play(.boing, nonce: UUID()) } }
+        .onChange(of: live.timers) { _, timers in
+            // Larm när en nedräkning når noll (om den inte har nollställts under tiden).
+            alarms = timers
+            guard playsSound else { return }
+            for (id, end) in timers where end > Date() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + end.timeIntervalSinceNow) {
+                    if alarms[id] == end { SoundPlayer.shared.play(.buzzer, nonce: UUID()) }
+                }
+            }
+        }
         .onChange(of: live.jingleNonce) { _, n in
             if playsSound, let n, let j = live.jingle { SoundPlayer.shared.play(j, nonce: n) }
         }
@@ -108,6 +138,8 @@ public struct PresentationView: View {
                   hidden: hidden(slide), ghosts: presenter)
             .environment(\.liveState, live)
             .environment(\.showsPlaceholders, false)
+            .environment(\.playsMotion, true)
+            .environment(\.videoMode, playsSound ? .sound : .muted)
             .animation(.spring(duration: 0.6, bounce: 0.35), value: [state.revealed, state.gone])
             .overlay {
                 if tappable, let onTapElement { TapTargets(slide: slide, hidden: hidden(slide), onTap: onTapElement) }
@@ -138,7 +170,7 @@ struct TapTargets: View {
     var body: some View {
         GeometryReader { geo in
             let k = geo.size.width / SlideSize.width
-            ForEach(slide.elements.filter { $0.link != nil || $0.sound != nil || $0.vanishes || $0.isQuiz || hidden.contains($0.id) }) { e in
+            ForEach(slide.elements.filter { $0.link != nil || $0.sound != nil || $0.vanishes || $0.isQuiz || $0.isTimer || hidden.contains($0.id) }) { e in
                 Color.clear
                     .contentShape(Rectangle())
                     .frame(width: e.frame.w * k, height: e.frame.h * k)

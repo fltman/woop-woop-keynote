@@ -103,6 +103,8 @@ public struct ImageBox: Codable, Hashable, Sendable {
     public init(assetID: String) { self.assetID = assetID }
     public static let placeholder = ImageBox(assetID: "")
     public var isPlaceholder: Bool { assetID.isEmpty }
+    /// Ett kort videoklipp (.mp4). Visas som stillbild när man bygger och spelas i presentationen.
+    public var isVideo: Bool { assetID.hasSuffix(".mp4") }
 }
 
 /// Omröstning eller quiz (`correct` satt). Publiken röstar med mobilen via QR-koden (CONTRACT §16).
@@ -122,12 +124,43 @@ public struct PollBox: Codable, Hashable, Sendable {
     public var asText: String { ([question] + options.map { "• " + $0 }).joined(separator: "\n") }
 }
 
+/// Nedräkning som presentatören startar med ett tryck. Exporteras som en bild av klockan.
+public struct TimerBox: Codable, Hashable, Sendable {
+    public var seconds: Int
+    public var color: RGBA
+    public init(seconds: Int = 30, color: RGBA) { self.seconds = seconds; self.color = color }
+    public static func label(_ s: Int) -> String { String(format: "%d:%02d", max(s, 0) / 60, max(s, 0) % 60) }
+}
+
+/// Stapel- eller cirkeldiagram från några inmatade siffror. Exporteras som en bild av diagrammet.
+public struct ChartBox: Codable, Hashable, Sendable {
+    public enum Kind: String, Codable, CaseIterable, Sendable { case bar, pie }
+    public var kind: Kind
+    public var title: String
+    public var labels: [String]
+    public var values: [Double]
+    public var accent: RGBA
+    public var textColor: RGBA
+    public init(kind: Kind = .bar, title: String, labels: [String], values: [Double], accent: RGBA, textColor: RGBA) {
+        self.kind = kind; self.title = title; self.labels = labels; self.values = values
+        self.accent = accent; self.textColor = textColor
+    }
+    public var asText: String {
+        ([title] + zip(labels, values).map { "• \($0): \($1.formatted())" }).joined(separator: "\n")
+    }
+}
+
 public enum Content: Codable, Hashable, Sendable {
     case text(TextBox)
     case shape(ShapeBox)
     case image(ImageBox)
     case poll(PollBox)
+    case timer(TimerBox)
+    case chart(ChartBox)
 }
+
+/// Rörelse medan bilden visas i presentationen. Exporteras inte.
+public enum Motion: String, Codable, CaseIterable, Sendable { case wobble, pulse, float, spin }
 
 /// Klickbara element (fas 3). Exporteras som PPTX-hyperlänkar.
 public enum ElementLink: Codable, Hashable, Sendable {
@@ -159,11 +192,20 @@ public struct Element: Codable, Hashable, Identifiable, Sendable {
     /// true = försvinner när den som presenterar trycker på det (och kommer tillbaka vid nästa tryck).
     /// Exporteras inte: i .pptx står elementet kvar.
     public var vanish: Bool?
+    /// true = en lapp (kommentar) till dem som bygger. Syns aldrig i presentationen eller exporten.
+    public var sticky: Bool?
+    /// Vem som skrev lappen.
+    public var author: String?
+    public var motion: Motion?
     public init(id: UUID = UUID(), frame: Frame, rotation: Double = 0, content: Content,
-                link: ElementLink? = nil, reveal: AppearEffect? = nil, sound: String? = nil, vanish: Bool? = nil) {
+                link: ElementLink? = nil, reveal: AppearEffect? = nil, sound: String? = nil, vanish: Bool? = nil,
+                sticky: Bool? = nil, author: String? = nil, motion: Motion? = nil) {
         self.id = id; self.frame = frame; self.rotation = rotation; self.content = content
         self.link = link; self.reveal = reveal; self.sound = sound; self.vanish = vanish
+        self.sticky = sticky; self.author = author; self.motion = motion
     }
+    public var isSticky: Bool { sticky == true }
+    public var isTimer: Bool { if case .timer = content { true } else { false } }
     public var vanishes: Bool { vanish == true }
     /// En bildplats som ännu inte har fått någon bild.
     public var isImagePlaceholder: Bool { if case .image(let i) = content { i.isPlaceholder } else { false } }
@@ -175,7 +217,7 @@ public struct Element: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-public enum DeckTransition: String, Codable, CaseIterable, Sendable { case none, fade, push, wipe }
+public enum DeckTransition: String, Codable, CaseIterable, Sendable { case none, fade, push, wipe, zoom, flip }
 
 public struct Slide: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
