@@ -25,6 +25,11 @@ targets:
       Release: Config/Base.xcconfig
     dependencies:
       - package: SlideKit
+    entitlements:
+      path: App-iOS/WoopWoop.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers: [$(ICLOUD_CONTAINER)]
+        com.apple.developer.icloud-services: [CloudKit]
     info:
       path: App-iOS/Info.plist
       properties:
@@ -36,6 +41,10 @@ targets:
         NSLocalNetworkUsageDescription: Woop Woop hittar presentationer och Apple TV i hemnätet så att ni kan bygga tillsammans.
         NSBonjourServices: [_woopwoop._tcp, _woopwoop-tv._tcp]
         GiphyAPIKey: $(GIPHY_API_KEY)
+        OpenRouterAPIKey: $(OPENROUTER_API_KEY)
+        OpenRouterImageModel: $(OPENROUTER_IMAGE_MODEL)
+        OpenRouterTextModel: $(OPENROUTER_TEXT_MODEL)
+        ICloudContainer: $(ICLOUD_CONTAINER)
         UIBackgroundModes: [audio]
         NSMicrophoneUsageDescription: Woop Woop spelar in ljud som spelas när man trycker på något i presentationen.
         LSSupportsOpeningDocumentsInPlace: false

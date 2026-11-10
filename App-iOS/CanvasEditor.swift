@@ -91,7 +91,10 @@ struct CanvasEditor: View {
             .onTapGesture(count: 2) {
                 guard session.isLockedByOther(e.id) == nil else { return }
                 selection = e.id
-                if case .text = e.content { onEditText(e.id) }
+                switch e.content {
+                case .text, .poll: onEditText(e.id)
+                default: break
+                }
             }
             .onTapGesture {
                 guard session.isLockedByOther(e.id) == nil else { return }

@@ -22,7 +22,7 @@ and no accounts. The app's interface is in Swedish.
 - **Polls and quizzes.** A poll is an element on the slide. The audience scans a QR code and
   votes in the browser on a small web page served by the sharing device.
 - **Content.** Text, shapes, photos, freehand drawings, paste from other apps, and GIF search
-  through GIPHY (always `rating=g`).
+  through GIPHY (always `rating=g`), and images generated from a description (via OpenRouter).
 - **Export.** `.pptx` (opens in PowerPoint, Keynote and Google Slides) and PDF.
 
 ## Build
@@ -42,6 +42,10 @@ Before building:
 2. GIF search is optional. To enable it, copy `Config/Secrets.example.xcconfig` to
    `Config/Secrets.xcconfig` and add a free API key from
    [developers.giphy.com](https://developers.giphy.com). The file is gitignored.
+3. AI image generation is optional too. Add an `OPENROUTER_API_KEY` to the same file. The key is
+   compiled into the app, so only share builds with people you trust, and set a credit limit on it.
+   Generated images that are used are saved to a shared library in the app's iCloud container;
+   set `ICLOUD_CONTAINER` in `Config/Base.xcconfig` to your own container.
 
 The project has two targets: `WoopWoop` (iOS/iPadOS 18+) and `WoopWoopTV` (tvOS 18+).
 
@@ -72,7 +76,8 @@ third-party dependencies. [`CONTRACT.md`](CONTRACT.md) (in Swedish) holds the bi
 
 - Devices must be on the same Wi-Fi. iOS suspends apps in the background, so the sharing device
   keeps its screen awake and everyone reconnects automatically after an interruption.
-- The only thing that leaves the home network is the search words sent to GIPHY.
+- The only things that leave the home network are the search words sent to GIPHY and the
+  descriptions typed for AI images.
 - Keynote drops click sounds from exported `.pptx` files. Polls export as plain text.
 - The sound board effects were generated with ElevenLabs.
 

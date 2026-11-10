@@ -22,6 +22,8 @@
 	<string>1</string>
 	<key>GiphyAPIKey</key>
 	<string>$(GIPHY_API_KEY)</string>
+	<key>ICloudContainer</key>
+	<string>$(ICLOUD_CONTAINER)</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSBonjourServices</key>
@@ -33,6 +35,12 @@
 	<string>Woop Woop hittar presentationer och Apple TV i hemnätet så att ni kan bygga tillsammans.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Woop Woop spelar in ljud som spelas när man trycker på något i presentationen.</string>
+	<key>OpenRouterAPIKey</key>
+	<string>$(OPENROUTER_API_KEY)</string>
+	<key>OpenRouterImageModel</key>
+	<string>$(OPENROUTER_IMAGE_MODEL)</string>
+	<key>OpenRouterTextModel</key>
+	<string>$(OPENROUTER_TEXT_MODEL)</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

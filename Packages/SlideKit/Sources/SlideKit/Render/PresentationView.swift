@@ -71,10 +71,11 @@ public struct PresentationView: View {
         .onChange(of: live.jingleNonce) { _, n in
             if playsSound, let n, let j = live.jingle { SoundPlayer.shared.play(j, nonce: n) }
         }
-        .onChange(of: state.revealed) { old, new in
-            // Konfetti där ett element med den effekten just visades.
-            guard let slide = deck.slides[safe: index] else { return }
-            for id in new where !old.contains(id) {
+        .onChange(of: state) { old, now in
+            // Konfetti där ett element med den effekten just visades. Bara på samma bild: backar man
+            // till en färdigbyggd bild har inget "just visats".
+            guard old.slideIndex == now.slideIndex, old.isPresenting, let slide = deck.slides[safe: index] else { return }
+            for id in now.revealed where !old.revealed.contains(id) {
                 guard let e = slide.element(id), e.reveal == .confetti else { continue }
                 let b = Burst(x: e.frame.midX, y: e.frame.midY)
                 bursts.append(b)

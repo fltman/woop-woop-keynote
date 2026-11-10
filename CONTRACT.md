@@ -42,7 +42,8 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
 6. **Inga tredjepartsberoenden** i SlideKit så länge det går att undvika.
 7. **Bilder** skalas ner vid import till högst 2048 px och lagras innehållsadresserat (sha256).
 8. **Barnens innehåll lämnar aldrig hemnätet** om inte någon exporterar och delar själv.
-   Enda undantaget: sökorden i GIPHY-sökningen (§13).
+   Undantagen: sökorden i GIPHY-sökningen (§13) och beskrivningen man skriver när man gör en
+   bild med AI (§18). AI-bilder som används sparas i familjens bibliotek i iCloud (§19).
 9. **Inget delas förrän man själv trycker på Dela.** Då visas presentationen direkt på en
    TV, utan att någon behöver välja med fjärren. Den senaste delningen tar över: börjar någon
    annan dela avslutas den tidigare delningen (annonsen bär starttiden) och TV:n byter.
@@ -76,6 +77,17 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
     Den som delar kör en liten webbserver; QR-koden i rutan leder dit. Bara värden räknar röster,
     en röst per mobil, och man får byta tills rätt svar visas. Rätt svar skickas inte till publikens
     sida förrän presentatören visar det. Rösterna sparas inte. Export: frågan och alternativen som text.
+18. **Bilder med AI.** Beskrivningen man skriver skickas till en bildmodell via OpenRouter,
+    tillsammans med fasta ramar om att bilden ska passa barn. Väljer man en referensbild skickas
+    den också (rutan säger det och avråder från foton på personer). Trollstaven vid ett fält
+    skickar fältets text till en snabb textmodell som skriver om den; alla fält där man beskriver
+    något för en modell ska ha den (`PromptField`). Resultatet blir en vanlig bild i
+    presentationen. Nyckeln ligger i `Config/Secrets.xcconfig` och följer med i appen som byggs,
+    så appen delas bara inom familjen. Högst 30 bilder per enhet och dag.
+19. **Familjens bildbibliotek.** En AI-bild som läggs på en bild sparas i appens iCloud-behållare
+    (CloudKits gemensamma databas) med beskrivningen och vem som gjorde den, så att alla i familjen
+    kan återanvända den. Bara AI-bilder: foton, teckningar och presentationer lämnar aldrig hemnätet.
+    Den som gjorde en bild kan ta bort den. Ett fel mot iCloud får aldrig hindra arbetet.
 
 ## Faser
 

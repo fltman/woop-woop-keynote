@@ -17,10 +17,16 @@ struct EditorView: View {
     @State private var photo: PhotosPickerItem?
     @State private var showGiphy = false
     @State private var drawing = false
+    @State private var showAI = false
     @State private var choosingScreen = false
     @State private var focusText = 0
 
     private var deck: Deck { session.deck }
+    /// Är en bild markerad när man öppnar "Gör en bild" blir den referensbild ("gör om den här").
+    private var selectedImageData: Data? {
+        guard let id = selection, case .image(let box) = slide?.element(id)?.content else { return nil }
+        return session.assets.data(box.assetID)
+    }
     private var joinTitle: String { "\(session.joinRequests.first?.name ?? "Någon") vill bygga med dig" }
     private var slide: Slide? { currentSlide.flatMap { deck.slide($0) } ?? deck.slides.first }
 
@@ -48,6 +54,7 @@ struct EditorView: View {
         .fullScreenCover(isPresented: $drawing) {
             if let s = slide { DrawSheet(slide: s, assets: session.assets) { png, frame in placeDrawing(png, frame) } }
         }
+        .sheet(isPresented: $showAI) { AIImageSheet(startReference: selectedImageData) { data in placeImage(data) } }
         .sheet(isPresented: $showGiphy) { GiphyPicker { data in placeImage(data) }.presentationSizing(.page) }
         .alert("Byt namn", isPresented: $renaming) {
             TextField("Namn", text: $newTitle)
@@ -77,6 +84,7 @@ struct EditorView: View {
         .onAppear {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-giphy") { showGiphy = true }
+            if ProcessInfo.processInfo.arguments.contains("-aiimage") { showAI = true }
             #endif
             currentSlide = deck.slides.first?.id
             #if DEBUG
@@ -184,6 +192,7 @@ struct EditorView: View {
             } label: { Label("Form", systemImage: "star.square.on.square") }
             PhotosPicker(selection: $photo, matching: .images) { Label("Bild", systemImage: "photo") }
             Button { showGiphy = true } label: { Label("GIF", systemImage: "sparkles") }
+            Button { showAI = true } label: { Label("Gör en bild med AI", systemImage: "wand.and.stars") }
             Button { selection = nil; drawing = true } label: { Label("Rita", systemImage: "pencil.tip.crop.circle") }
             Menu {
                 Button("Omröstning", systemImage: "chart.bar.fill") { addPoll(quiz: false) }

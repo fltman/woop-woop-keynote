@@ -51,6 +51,10 @@ final class AppModel {
     init() {
         browser.start()
         tvs.start()
+        // Appen sveps bort: säg adjö om vi hinner, så att TV:n går till väntläget direkt.
+        NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.close() }
+        }
         // Försök igen var tredje sekund om kontakten med den som delar har tappats.
         Task { [weak self] in
             while true {

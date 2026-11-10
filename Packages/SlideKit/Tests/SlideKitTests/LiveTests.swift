@@ -99,6 +99,13 @@ final class LiveTests: XCTestCase {
         host.send(.pointer(Spot(x: 5, y: 5)))
         host.send(.stroke(InkStroke(points: [Spot(x: 1, y: 2)], color: .black)))
         host.remote(.stop)   // bildbyte eller slut rensar streck och pekare
+        // Nästa presentation börjar med tomma omröstningar och dolt svar.
+        host.setPresent(PresentState(isPresenting: true, slideIndex: 0))
+        XCTAssertEqual(host.live.votes[poll.id], [])
+        XCTAssertFalse(host.live.answers.contains(poll.id))
+        try await waitUntil("nollställt på tv") { tv.live.votes[poll.id] == [] && !tv.live.answers.contains(poll.id) }
+        host.castVote(poll: poll.id, option: 0, voter: "a")
+        XCTAssertEqual(host.live.votes[poll.id], [1, 0, 0], "gamla röster räknas inte med")
         XCTAssertTrue(host.live.ink.isEmpty); XCTAssertNil(host.live.pointer)
         host.stopHosting()
     }

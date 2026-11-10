@@ -1,4 +1,11 @@
 // Gemensamma inställningar. Hemligheter ligger i Secrets.xcconfig, som är gitignorerad.
 // Kopiera Secrets.example.xcconfig till Secrets.xcconfig och fyll i.
 GIPHY_API_KEY =
+OPENROUTER_API_KEY =
+// iCloud-behållaren för familjens bildbibliotek. Byt till din egen om du bygger appen själv.
+ICLOUD_CONTAINER = iCloud.com.bjarby.woopwoop
+// Bildmodellen för "Gör en bild med AI". Snabb och billig som standard.
+OPENROUTER_IMAGE_MODEL = google/gemini-3.1-flash-image
+// Textmodellen bakom trollstaven som skriver om beskrivningar.
+OPENROUTER_TEXT_MODEL = google/gemini-3.5-flash-lite
 #include? "Secrets.xcconfig"

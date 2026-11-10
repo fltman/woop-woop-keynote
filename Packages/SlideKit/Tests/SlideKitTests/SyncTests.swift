@@ -150,6 +150,9 @@ final class SyncTests: XCTestCase {
         try await waitUntil("lås släppt") { b.isLockedByOther(ea.id) == nil && host.peers.count == 3 }
         host.stopHosting()
         try await waitUntil("klienterna märker att värden slutat") { b.role == .solo && tv.role == .solo }
+        // Värden stängde själv: TV:n ska veta att det var ett adjö (och gå till väntläget), inte ett avbrott.
+        XCTAssertTrue(tv.turnedAway)
+        XCTAssertEqual(tv.link, .lost("Värden slutade dela"))
     }
 
     func testResumeAfterPauseAndReadmit() async throws {

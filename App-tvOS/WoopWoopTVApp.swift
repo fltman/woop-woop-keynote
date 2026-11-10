@@ -151,11 +151,13 @@ final class TVModel {
         guard let s = session, case .lost = s.link, let w = wantedHost else { return }
         if let h = browser.hosts.first(where: { $0.id == w }) { missing = 0; return join(h) }
         // Presentationen vi väntar på delas inte längre. Finns det precis en annan, ta den efter en
-        // liten stund; annars vänta ett par minuter (telefonen kan vara låst) och gå sedan till väntläget.
+        // liten stund; annars vänta en halv minut och gå sedan till väntläget.
         missing += 1
         let others = browser.hosts.filter { !declined.contains($0.id) }
         if missing >= 3, others.count == 1 { missing = 0; return join(others[0]) }
-        if missing >= 40 {
+        // Telefonen hålls numera vaken i bakgrunden, så en presentation som varit borta i en halv minut
+        // är troligen stängd på riktigt (t.ex. appen sveptes bort utan att hinna säga adjö).
+        if missing >= 10 {
             missing = 0
             notice = "Presentationen delas inte längre"
             wantedHost = nil; wantedStarted = 0; session = nil
@@ -180,6 +182,9 @@ struct TVRoot: View {
         }
         .onAppear { model.browser.start() }
         .onChange(of: phase) { _, p in if p == .active { model.becameActive() } }
+        // Den som delade stängde sin presentation: tillbaka till väntläget direkt, utan att vänta på nästa kontroll.
+        .onChange(of: model.session?.turnedAway) { _, away in if away == true { model.retryIfLost() } }
+        .onChange(of: model.session?.link) { _, _ in if model.session?.turnedAway == true { model.retryIfLost() } }
         .onChange(of: model.browser.hosts) { old, hosts in
             #if DEBUG
             // -autojoin <namn>: bara presentationer vars namn innehåller <namn> (för simulatorn).

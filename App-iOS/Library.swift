@@ -47,8 +47,8 @@ final class Library {
         dirty.removeAll()
     }
 
-    func create(theme: Theme) -> Deck {
-        let d = Deck.new(title: "Ny presentation", theme: theme)
+    func create(theme: Theme, template: DeckTemplate = .empty) -> Deck {
+        let d = template == .empty ? Deck.new(title: "Ny presentation", theme: theme) : template.makeDeck(theme: theme)
         save(d); flush()
         return d
     }

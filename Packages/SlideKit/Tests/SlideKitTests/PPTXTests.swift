@@ -184,4 +184,21 @@ final class PPTXTests: XCTestCase {
     func testCRC32KnownValue() {
         XCTAssertEqual(CRC32.checksum(Data("123456789".utf8)), 0xCBF43926)
     }
+
+    /// Alla teman, layouter och upplägg ger bilder som håller sig på ytan och går att exportera.
+    func testEveryThemeLayoutAndTemplateExports() throws {
+        let store = AssetStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("tpl-\(UUID())"))
+        XCTAssertEqual(Set(Theme.all.map(\.id)).count, Theme.all.count, "tema-id:n ska vara unika")
+        XCTAssertEqual(Theme.all.last?.id, "ren", "Theme.inferred utgår från det sista temat")
+        for theme in Theme.all {
+            var deck = Deck(title: theme.name, slides: SlideLayout.allCases.map { $0.makeSlide(theme: theme) })
+            for t in DeckTemplate.allCases { deck.slides += t.makeDeck(theme: theme).slides }
+            for s in deck.slides { for e in s.elements {
+                XCTAssertTrue(e.frame.x >= 0 && e.frame.y >= 0 && e.frame.x + e.frame.w <= SlideSize.width
+                              && e.frame.y + e.frame.h <= SlideSize.height, "\(theme.id): element utanför bilden \(e.frame)")
+            } }
+            XCTAssertGreaterThan(try PPTXExporter.export(deck, assets: store).count, 10_000, theme.id)
+        }
+        XCTAssertEqual(DeckTemplate.quiz.makeDeck(theme: Theme.all[0]).slides.filter { $0.elements.contains { $0.isQuiz } }.count, 3)
+    }
 }

@@ -181,6 +181,12 @@ public final class Session {
     }
 
     public func setPresent(_ s: PresentState) {
+        // En ny presentation börjar med tomma omröstningar (annars ligger repetitionens röster kvar).
+        if role != .client, s.isPresenting, !present.isPresenting {
+            ballots = [:]
+            for p in live.votes.keys { send(.votes(poll: p, counts: [])) }
+            for p in live.answers { send(.answer(poll: p, shown: false)) }
+        }
         switch role {
         case .solo: present = s; clampPresent()
         case .host: present = s; clampPresent(); broadcast(.present(present))

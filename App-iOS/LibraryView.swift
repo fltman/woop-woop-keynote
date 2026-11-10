@@ -38,6 +38,7 @@ struct LibraryView: View {
                             Button { model.open(d) } label: { DeckCard(deck: d, assets: model.library.assets) }
                                 .buttonStyle(.plain)
                                 .contextMenu {
+                                    Button("Duplicera", systemImage: "plus.square.on.square") { _ = model.library.saveCopy(of: d) }
                                     Button("Ta bort", systemImage: "trash", role: .destructive) { toDelete = d }
                                 }
                         }
@@ -52,9 +53,9 @@ struct LibraryView: View {
                         .foregroundStyle(model.profile.peer.color.color)
                 }
             }
-            .sheet(isPresented: $choosingTheme) { ThemePicker { theme in
+            .sheet(isPresented: $choosingTheme) { ThemePicker { theme, template in
                 choosingTheme = false
-                model.open(model.library.create(theme: theme))
+                model.open(model.library.create(theme: theme, template: template))
             } }
             .sheet(isPresented: $editingProfile) { ProfileEditor() }
             .confirmationDialog("Ta bort \(toDelete?.title ?? "")?", isPresented: .init(get: { toDelete != nil }, set: { if !$0 { toDelete = nil } }),
@@ -66,6 +67,7 @@ struct LibraryView: View {
             model.browser.start(); model.tvs.start()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-profile") { editingProfile = true }
+            if ProcessInfo.processInfo.arguments.contains("-newdeck") { choosingTheme = true }
             #endif
         }
     }
@@ -89,30 +91,61 @@ struct DeckCard: View {
     }
 }
 
+/// Ny presentation: välj ett upplägg (färdiga bilder att fylla i) och sedan ett tema (färger och typsnitt).
 struct ThemePicker: View {
-    var onPick: (Theme) -> Void
+    var onPick: (Theme, DeckTemplate) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var template = DeckTemplate.empty
     private let assets = AssetStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("theme-preview"))
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 16)], spacing: 16) {
-                    ForEach(Theme.all) { t in
-                        Button { onPick(t) } label: {
-                            VStack {
-                                SlideView(slide: SlideLayout.title.makeSlide(theme: t), assets: assets)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                Text(t.name).font(.headline)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("1. Välj upplägg").font(.headline).padding(.horizontal)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(DeckTemplate.allCases) { t in
+                                Button { template = t } label: {
+                                    Label(t.name, systemImage: t.symbol).font(.subheadline.bold())
+                                        .padding(.horizontal, 14).padding(.vertical, 10)
+                                        .foregroundStyle(t == template ? Color.white : Color.primary)
+                                        .background(t == template ? Color.accentColor : Color(.secondarySystemBackground), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(t == template ? .isSelected : [])
                             }
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal)
                     }
+                    Text("2. Välj tema").font(.headline).padding(.horizontal).padding(.top, 6)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 16) {
+                        ForEach(Theme.all) { t in
+                            Button { onPick(t, template) } label: {
+                                VStack(spacing: 6) {
+                                    // Förhandsvisningen är upplägget i det temat (andra bilden säger mer än rubriken).
+                                    SlideView(slide: preview(t), assets: assets)
+                                        .environment(\.liveState, LiveState())
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay { RoundedRectangle(cornerRadius: 10).stroke(.gray.opacity(0.3), lineWidth: 1) }
+                                    Text(t.name).font(.subheadline.bold())
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal)
                 }
-                .padding()
+                .padding(.vertical)
             }
-            .navigationTitle("Välj ett tema")
+            .navigationTitle("Ny presentation")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Avbryt") { dismiss() } }
         }
+    }
+
+    private func preview(_ t: Theme) -> Slide {
+        let d = template.makeDeck(theme: t)
+        return d.slides.first ?? SlideLayout.title.makeSlide(theme: t)
     }
 }
 
