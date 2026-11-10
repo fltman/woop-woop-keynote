@@ -199,6 +199,13 @@ final class PPTXTests: XCTestCase {
             } }
             XCTAssertGreaterThan(try PPTXExporter.export(deck, assets: store).count, 10_000, theme.id)
         }
+        // Bildplatser är inga bilder: de begär ingen fil och hamnar inte i exporten.
+        let ph = SlideLayout.threePictures.makeSlide(theme: Theme.all[0])
+        XCTAssertEqual(ph.elements.filter(\.isImagePlaceholder).count, 3)
+        XCTAssertTrue(ph.assetIDs.isEmpty)
+        // Filnamnen står i klartext i zip-filen.
+        let zip = try PPTXExporter.export(Deck(title: "p", slides: [ph]), assets: store)
+        XCTAssertNil(zip.range(of: Data("ppt/media/".utf8)), "en bildplats ska inte bli en fil i .pptx")
         XCTAssertEqual(DeckTemplate.quiz.makeDeck(theme: Theme.all[0]).slides.filter { $0.elements.contains { $0.isQuiz } }.count, 3)
     }
 }

@@ -105,7 +105,7 @@ extension RGBA {
 }
 
 public enum SlideLayout: String, CaseIterable, Identifiable, Sendable {
-    case title, titleAndText, bigWord, section, twoColumns, textAndPicture, quote, bigNumber, versus, threeSteps, thanks, blank
+    case title, titleAndText, bigWord, section, twoColumns, textAndPicture, bigPicture, threePictures, quote, bigNumber, versus, threeSteps, thanks, blank
     public var id: String { rawValue }
     public var name: String {
         switch self {
@@ -115,6 +115,8 @@ public enum SlideLayout: String, CaseIterable, Identifiable, Sendable {
         case .section: "Nytt avsnitt"
         case .twoColumns: "Två spalter"
         case .textAndPicture: "Text och bild"
+        case .bigPicture: "Stor bild"
+        case .threePictures: "Tre bilder"
         case .quote: "Citat"
         case .bigNumber: "Stor siffra"
         case .versus: "Jämför två saker"
@@ -162,11 +164,21 @@ public enum SlideLayout: String, CaseIterable, Identifiable, Sendable {
                           text("• Vänster sida\n• En sak till", theme.body, Frame(x: 120, y: 300, w: 800, h: 660)),
                           text("• Höger sida\n• En sak till", theme.body, Frame(x: 1000, y: 300, w: 800, h: 660))]
         case .textAndPicture:
-            var hint = theme.body; hint.align = .center; hint.color = onAccent; hint.size = 44
             s.elements = [heading("Rubrik"),
                           text("Berätta om bilden här.", theme.body, Frame(x: 120, y: 300, w: 820, h: 660)),
-                          shape(.roundedRectangle, Frame(x: 1020, y: 300, w: 780, h: 600), theme.accent),
-                          text("Byt mot en bild", hint, Frame(x: 1020, y: 565, w: 780, h: 80))]
+                          Element(frame: Frame(x: 1020, y: 300, w: 780, h: 600), content: .image(.placeholder))]
+        case .bigPicture:
+            var cap = theme.body; cap.align = .center
+            s.elements = [Element(frame: Frame(x: 260, y: 80, w: 1400, h: 780), content: .image(.placeholder)),
+                          text("Bildtext", cap, Frame(x: 160, y: 900, w: 1600, h: 100))]
+        case .threePictures:
+            var cap = theme.body; cap.align = .center; cap.size = 48
+            s.elements = [heading("Rubrik")]
+            for i in 0..<3 {
+                let x = 120.0 + Double(i) * 580
+                s.elements.append(Element(frame: Frame(x: x, y: 300, w: 520, h: 420), content: .image(.placeholder)))
+                s.elements.append(text("Bildtext", cap, Frame(x: x, y: 750, w: 520, h: 90)))
+            }
         case .quote:
             var q = theme.title; q.size = 96; q.italic = true; q.bold = false; q.align = .center
             var who = theme.body; who.align = .center

@@ -41,6 +41,8 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
    Verdana, Trebuchet MS, Courier New och Times New Roman.
 6. **Inga tredjepartsberoenden** i SlideKit så länge det går att undvika.
 7. **Bilder** skalas ner vid import till högst 2048 px och lagras innehållsadresserat (sha256).
+   En bild utan fil (`ImageBox.placeholder`) är en bildplats: den syns när man bygger, men aldrig
+   i presentationen eller i exporten. Mallar använder bildplatser, inte former som låtsas vara det.
 8. **Barnens innehåll lämnar aldrig hemnätet** om inte någon exporterar och delar själv.
    Undantagen: sökorden i GIPHY-sökningen (§13) och beskrivningen man skriver när man gör en
    bild med AI (§18). AI-bilder som används sparas i familjens bibliotek i iCloud (§19).

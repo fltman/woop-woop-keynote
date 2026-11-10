@@ -97,8 +97,12 @@ public struct ShapeBox: Codable, Hashable, Sendable {
 }
 
 public struct ImageBox: Codable, Hashable, Sendable {
+    /// Tomt = en bildplats (platshållare) som väntar på en bild. Den syns bara när man bygger,
+    /// aldrig i presentationen eller i exporten.
     public var assetID: String
     public init(assetID: String) { self.assetID = assetID }
+    public static let placeholder = ImageBox(assetID: "")
+    public var isPlaceholder: Bool { assetID.isEmpty }
 }
 
 /// Omröstning eller quiz (`correct` satt). Publiken röstar med mobilen via QR-koden (CONTRACT §16).
@@ -161,9 +165,11 @@ public struct Element: Codable, Hashable, Identifiable, Sendable {
         self.link = link; self.reveal = reveal; self.sound = sound; self.vanish = vanish
     }
     public var vanishes: Bool { vanish == true }
+    /// En bildplats som ännu inte har fått någon bild.
+    public var isImagePlaceholder: Bool { if case .image(let i) = content { i.isPlaceholder } else { false } }
     public var assetIDs: [String] {
         var ids: [String] = []
-        if case .image(let i) = content { ids.append(i.assetID) }
+        if case .image(let i) = content, !i.isPlaceholder { ids.append(i.assetID) }
         if let s = sound { ids.append(s) }
         return ids
     }

@@ -22,7 +22,7 @@ struct StageView: View {
     }
 
     var body: some View {
-        VStack(spacing: 30) {
+        VStack(spacing: 26) {
             header
             HStack(alignment: .top, spacing: 36) {
             if deck.slides.indices.contains(followIndex) {
@@ -32,8 +32,9 @@ struct StageView: View {
                     SlideView(slide: slide, assets: session.assets, drags: drags(on: slide), marks: marks(on: slide),
                               assetVersion: session.assetVersion, glows: glows(at: ctx.date))
                         .environment(\.liveState, session.live)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .shadow(radius: 30)
+                        .clipShape(RoundedRectangle(cornerRadius: 22))
+                        .overlay { RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.18), lineWidth: 2) }
+                        .shadow(color: .black.opacity(0.55), radius: 40, y: 18)
                         .animation(.easeOut(duration: 0.08), value: drags(on: slide))
                         .animation(.spring(duration: 0.35), value: slide)
                         .id(slide.id)
@@ -46,8 +47,8 @@ struct StageView: View {
             }
             strip
         }
-        .padding(60)
-        .background(Color(white: 0.08).ignoresSafeArea())
+        .padding(.horizontal, 60).padding(.top, 40).padding(.bottom, 30)
+        .background { StageBackdrop() }
         .focusable()
         .focused($focused)
         .onAppear { focused = true }
@@ -81,27 +82,45 @@ struct StageView: View {
         return g
     }
 
-    /// De senaste händelserna; varje rad syns i åtta sekunder.
+    /// De senaste händelserna; varje rad syns i tolv sekunder.
     private var feed: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
             let rows = session.activity.filter { ctx.date.timeIntervalSince($0.at) < 12 }.suffix(5)
             VStack(alignment: .leading, spacing: 14) {
+                Label("Händer nu", systemImage: "bolt.fill")
+                    .font(.system(size: 24, weight: .heavy)).foregroundStyle(Self.gold)
+                if rows.isEmpty {
+                    Text("Här syns vad alla gör medan ni bygger.")
+                        .font(.system(size: 24)).foregroundStyle(.white.opacity(0.5))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 ForEach(Array(rows)) { a in
-                    let color = session.peers.first { $0.id == a.peer }?.color.color ?? .gray
+                    let peer = session.peers.first { $0.id == a.peer }
+                    let color = peer?.color.color ?? .gray
                     HStack(alignment: .top, spacing: 14) {
-                        Circle().fill(color).frame(width: 18, height: 18).padding(.top, 8)
-                        Text(a.text).font(.system(size: 28, weight: .semibold)).lineLimit(3)
+                        Text(String((peer?.name ?? "?").prefix(1)).uppercased())
+                            .font(.system(size: 22, weight: .heavy, design: .rounded)).foregroundStyle(.white)
+                            .frame(width: 40, height: 40).background(color.gradient, in: Circle())
+                        Text(a.text).font(.system(size: 27, weight: .semibold)).lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.horizontal, 20).padding(.vertical, 12)
+                    .padding(.horizontal, 18).padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3).fill(color).frame(width: 6).padding(.vertical, 12)
+                    }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 24))
             .animation(.spring(duration: 0.4), value: rows.map(\.id))
         }
     }
+
+    static let gold = Color(red: 1, green: 0.76, blue: 0.07)
 
     private func present() {
         guard session.link == .connected else { return }
@@ -109,28 +128,49 @@ struct StageView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 24) {
-            Text(deck.title).font(.title2.bold()).lineLimit(1)
-            Label(pinned == nil ? "LIVE" : "Bläddrar – tryck upp för live",
-                  systemImage: pinned == nil ? "dot.radiowaves.left.and.right" : "pause.fill")
-                .font(.headline)
-                .foregroundStyle(pinned == nil ? .red : .secondary)
+        HStack(spacing: 22) {
+            // Loggans gula kort, så att scenen hör ihop med väntläget.
+            Text("W!").font(.system(size: 30, weight: .heavy, design: .rounded)).foregroundStyle(.white)
+                .frame(width: 84, height: 54)
+                .background(Self.gold, in: RoundedRectangle(cornerRadius: 12))
+                .rotationEffect(.degrees(-8))
+            Text(deck.title).font(.system(size: 46, weight: .heavy, design: .rounded)).lineLimit(1)
+            if pinned == nil {
+                HStack(spacing: 10) {
+                    PulsingDot()
+                    Text("LIVE").font(.system(size: 24, weight: .heavy))
+                }
+                .padding(.horizontal, 18).padding(.vertical, 9)
+                .background(Color.red, in: Capsule())
+            } else {
+                Label("Bläddrar – tryck upp för live", systemImage: "pause.fill")
+                    .font(.system(size: 24, weight: .bold))
+                    .padding(.horizontal, 18).padding(.vertical, 9)
+                    .background(.white.opacity(0.16), in: Capsule())
+            }
             Spacer()
             ForEach(session.peers.filter { $0.role == .editor }) { p in
-                Label(p.name, systemImage: "person.fill")
-                    .font(.headline)
-                    .padding(.horizontal, 18).padding(.vertical, 8)
-                    .background(p.color.color, in: Capsule())
+                HStack(spacing: 10) {
+                    Text(String(p.name.prefix(1)).uppercased())
+                        .font(.system(size: 22, weight: .heavy, design: .rounded))
+                        .frame(width: 42, height: 42).background(p.color.color.gradient, in: Circle())
+                    Text(p.name).font(.system(size: 26, weight: .bold)).lineLimit(1)
+                }
+                .padding(.leading, 6).padding(.trailing, 20).padding(.vertical, 6)
+                .background(.white.opacity(0.12), in: Capsule())
             }
             switch session.link {
             case .connecting: ProgressView()
             case .lost:
                 // Låst telefon eller appen i bakgrunden; TV:n ansluter igen av sig själv.
                 Label("Väntar på telefonen … öppna Woop Woop igen", systemImage: "wifi.slash")
-                    .foregroundStyle(.orange)
+                    .font(.system(size: 24, weight: .bold)).foregroundStyle(.black)
+                    .padding(.horizontal, 18).padding(.vertical, 9)
+                    .background(Color.orange, in: Capsule())
             default: EmptyView()
             }
         }
+        .foregroundStyle(.white)
     }
 
     private var strip: some View {
@@ -139,23 +179,40 @@ struct StageView: View {
                 HStack(spacing: 20) {
                     ForEach(Array(deck.slides.enumerated()), id: \.element.id) { i, s in
                         SlideView(slide: s, assets: session.assets, assetVersion: session.assetVersion)
-                            .frame(width: 220)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .environment(\.animatesImages, false)
+                            .frame(width: 200)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                             .overlay {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(i == followIndex ? .white : .clear, lineWidth: 5)
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(i == followIndex ? Self.gold : .white.opacity(0.15), lineWidth: i == followIndex ? 5 : 1)
+                            }
+                            .overlay(alignment: .topLeading) {
+                                Text("\(i + 1)").font(.system(size: 18, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(i == followIndex ? .black : .white)
+                                    .frame(width: 32, height: 32)
+                                    .background(i == followIndex ? Self.gold : Color.black.opacity(0.55), in: Circle())
+                                    .padding(6)
                             }
                             .overlay(alignment: .bottomTrailing) { peerDots(on: s) }
+                            .scaleEffect(i == followIndex ? 1.08 : 1)
+                            .opacity(i == followIndex ? 1 : 0.75)
+                            .animation(.spring(duration: 0.35), value: followIndex)
                             .id(s.id)
                     }
                 }
-                .padding(.vertical, 10)
+                .padding(.vertical, 16).padding(.horizontal, 20)
             }
             .onChange(of: followIndex) { _, i in
                 if deck.slides.indices.contains(i) { withAnimation { proxy.scrollTo(deck.slides[i].id, anchor: .center) } }
             }
         }
         .frame(height: 150)
+        .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 24))
+        .overlay(alignment: .bottomTrailing) {
+            Label("Play startar presentationen", systemImage: "playpause.fill")
+                .font(.system(size: 20, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+                .padding(.horizontal, 18).padding(.vertical, 12)
+        }
     }
 
     private func peerDots(on s: Slide) -> some View {
@@ -180,6 +237,31 @@ struct StageView: View {
         var d: [UUID: DragPreview] = [:]
         for p in session.presence.values where p.slide == s.id { if let x = p.drag { d[x.element] = x } }
         return d
+    }
+}
+
+/// Scenens bakgrund: samma lila som väntläget, men mörkare så att bilden får ljuset.
+struct StageBackdrop: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.07, green: 0.05, blue: 0.22), Color(red: 0.22, green: 0.07, blue: 0.2)],
+                           startPoint: .top, endPoint: .bottom)
+            // En ljuskägla bakom bilden, som en scenstrålkastare.
+            RadialGradient(colors: [Color(red: 0.45, green: 0.3, blue: 0.9).opacity(0.35), .clear],
+                           center: UnitPoint(x: 0.38, y: 0.45), startRadius: 50, endRadius: 900)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// Den röda pricken i LIVE-brickan som andas.
+struct PulsingDot: View {
+    @State private var on = false
+    var body: some View {
+        Circle().fill(.white).frame(width: 14, height: 14)
+            .opacity(on ? 1 : 0.35)
+            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: on)
+            .onAppear { on = true }
     }
 }
 

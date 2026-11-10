@@ -193,6 +193,7 @@ public struct FillView: View {
 public struct ElementView: View {
     public var element: Element
     public var assets: AssetStore
+    @Environment(\.showsPlaceholders) private var showsPlaceholders
     public init(element: Element, assets: AssetStore) { self.element = element; self.assets = assets }
 
     public var body: some View {
@@ -202,7 +203,9 @@ public struct ElementView: View {
         case .shape(let s):
             ShapeView(box: s)
         case .image(let i):
-            if let anim = assets.animation(i.assetID) {
+            if i.isPlaceholder {
+                if showsPlaceholders { ImagePlaceholderView(width: element.frame.w, height: element.frame.h) }
+            } else if let anim = assets.animation(i.assetID) {
                 AnimatedImage(animation: anim)
             } else if let cg = assets.cgImage(i.assetID) {
                 Image(decorative: cg, scale: 1).resizable()
@@ -216,7 +219,32 @@ public struct ElementView: View {
     }
 }
 
+/// En bildplats: tryck för att välja en bild. Syns på alla bakgrunder (ljus kant, mörk skugga).
+struct ImagePlaceholderView: View {
+    var width: Double
+    var height: Double
+    var body: some View {
+        let u = min(width, height)
+        ZStack {
+            RoundedRectangle(cornerRadius: u * 0.06).fill(Color.gray.opacity(0.35))
+            RoundedRectangle(cornerRadius: u * 0.06)
+                .stroke(style: StrokeStyle(lineWidth: max(u * 0.012, 4), dash: [u * 0.05, u * 0.035]))
+                .foregroundStyle(.white.opacity(0.9))
+            VStack(spacing: u * 0.04) {
+                Image(systemName: "photo.badge.plus").font(.system(size: u * 0.22, weight: .semibold))
+                if u > 220 { Text("Tryck för att lägga till en bild").font(.custom("Arial", fixedSize: max(u * 0.07, 28))).bold() }
+            }
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(u * 0.06)
+        }
+        .shadow(color: .black.opacity(0.35), radius: 6)
+    }
+}
+
 extension EnvironmentValues {
+    /// Bildplatser syns när man bygger, men aldrig i presentationen eller i PDF-exporten.
+    @Entry public var showsPlaceholders = true
     /// Av i miniatyrer: en remsa full av GIF:ar som rör sig är både rörig och dyr.
     @Entry public var animatesImages = true
 }

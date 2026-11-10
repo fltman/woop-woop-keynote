@@ -44,7 +44,7 @@ extension Content {
     var forms: (String, String) {
         switch self {
         case .text: ("en text", "texten")
-        case .image: ("ett foto", "fotot")
+        case .image(let i): i.isPlaceholder ? ("en bildplats", "bildplatsen") : ("ett foto", "fotot")
         case .shape(let s): s.kind.forms
         case .poll(let p): p.correct == nil ? ("en omröstning", "omröstningen") : ("en quizfråga", "quizfrågan")
         }

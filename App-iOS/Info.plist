@@ -31,6 +31,8 @@
 		<string>_woopwoop._tcp</string>
 		<string>_woopwoop-tv._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Woop Woop tar foton som du lägger i din presentation.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Woop Woop hittar presentationer och Apple TV i hemnätet så att ni kan bygga tillsammans.</string>
 	<key>NSMicrophoneUsageDescription</key>

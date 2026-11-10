@@ -46,6 +46,7 @@ targets:
         OpenRouterTextModel: $(OPENROUTER_TEXT_MODEL)
         ICloudContainer: $(ICLOUD_CONTAINER)
         UIBackgroundModes: [audio]
+        NSCameraUsageDescription: Woop Woop tar foton som du lägger i din presentation.
         NSMicrophoneUsageDescription: Woop Woop spelar in ljud som spelas när man trycker på något i presentationen.
         LSSupportsOpeningDocumentsInPlace: false
         UIFileSharingEnabled: false

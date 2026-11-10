@@ -12,6 +12,8 @@ struct CanvasEditor: View {
     var onPaste: ([NSItemProvider]) -> Void = { _ in }
     /// Öppna formatpanelen (på iPhone ligger den annars gömd under ⋯).
     var onFormat: (() -> Void)?
+    /// Tryck på en bildplats: välj var bilden ska komma ifrån.
+    var onPlaceholder: (UUID) -> Void = { _ in }
     var onEditText: (UUID) -> Void
 
     @State private var live: DragPreview?
@@ -99,6 +101,7 @@ struct CanvasEditor: View {
             .onTapGesture {
                 guard session.isLockedByOther(e.id) == nil else { return }
                 selection = e.id
+                if e.isImagePlaceholder { onPlaceholder(e.id) }
             }
             .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .named("canvas"))
                 .onChanged { v in move(e, t: v.translation, k: k) }
@@ -177,8 +180,8 @@ struct CanvasEditor: View {
         let dy = (-t.width * sin(th) + t.height * cos(th)) / k
         let (sx, sy) = corner
         var w = f0.w + sx * dx, h = f0.h + sy * dy
-        if case .image = s.content {
-            // Bilder behåller proportionerna.
+        if case .image(let box) = s.content, !box.isPlaceholder {
+            // Bilder behåller proportionerna (en tom bildplats får man forma fritt).
             let scale = 1 + (sx * dx * f0.w + sy * dy * f0.h) / (f0.w * f0.w + f0.h * f0.h)
             w = f0.w * scale; h = f0.h * scale
         }
@@ -299,7 +302,7 @@ extension Element {
         switch content {
         case .text(let t): "Text: \(t.text)"
         case .shape(let s): s.kind.name
-        case .image: "Bild"
+        case .image(let i): i.isPlaceholder ? "Bildplats, tryck för att lägga till en bild" : "Bild"
         case .poll(let p): "Omröstning: \(p.question)"
         }
     }

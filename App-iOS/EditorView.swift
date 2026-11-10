@@ -18,6 +18,11 @@ struct EditorView: View {
     @State private var showGiphy = false
     @State private var drawing = false
     @State private var showAI = false
+    @State private var aiStartsInLibrary = false
+    @State private var choosingSource = false
+    @State private var pickingPhoto = false
+    @State private var showCamera = false
+    @State private var notice: String?
     @State private var choosingScreen = false
     @State private var focusText = 0
 
@@ -54,7 +59,25 @@ struct EditorView: View {
         .fullScreenCover(isPresented: $drawing) {
             if let s = slide { DrawSheet(slide: s, assets: session.assets) { png, frame in placeDrawing(png, frame) } }
         }
-        .sheet(isPresented: $showAI) { AIImageSheet(startReference: selectedImageData) { data in placeImage(data) } }
+        .sheet(isPresented: $showAI) {
+            AIImageSheet(startReference: selectedImageData, startInLibrary: aiStartsInLibrary) { data in placeImage(data) }
+        }
+        // Tryck på en bildplats: var ska bilden komma ifrån?
+        .confirmationDialog("Lägg till en bild", isPresented: $choosingSource, titleVisibility: .visible) {
+            Button("Klistra in") { pasteIntoPlaceholder() }
+            Button("Gör en bild med AI") { aiStartsInLibrary = false; showAI = true }
+            if ImageLibrary.containerID != nil {
+                Button("Familjens bildbibliotek") { aiStartsInLibrary = true; showAI = true }
+            }
+            Button("Välj bland mina bilder") { pickingPhoto = true }
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Ta ett foto") { showCamera = true }
+            }
+            Button("Avbryt", role: .cancel) {}
+        }
+        .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+        .fullScreenCover(isPresented: $showCamera) { CameraPicker { data in placeImage(data) }.ignoresSafeArea() }
+        .alert(notice ?? "", isPresented: .init(get: { notice != nil }, set: { if !$0 { notice = nil } })) { Button("OK") {} }
         .sheet(isPresented: $showGiphy) { GiphyPicker { data in placeImage(data) }.presentationSizing(.page) }
         .alert("Byt namn", isPresented: $renaming) {
             TextField("Namn", text: $newTitle)
@@ -97,6 +120,14 @@ struct EditorView: View {
             #endif
             session.setPresence(slide: currentSlide)
             #if DEBUG
+            // -placeholder: en bild med bildplats, markerad, med källmenyn öppen (för simulatorn).
+            if ProcessInfo.processInfo.arguments.contains("-placeholder") {
+                let s = SlideLayout.textAndPicture.makeSlide(theme: Theme.all[0])
+                session.perform(.insertSlide(s, at: 1))
+                currentSlide = s.id
+                selection = s.elements.last?.id
+                if ProcessInfo.processInfo.arguments.contains("-menu") { choosingSource = true }
+            }
             // -presenter: börja presentera bild 2 efter en stund (för att se presentatörens skärm på simulatorn).
             if ProcessInfo.processInfo.arguments.contains("-presenter") {
                 Task {
@@ -149,7 +180,8 @@ struct EditorView: View {
             if let s = slide {
                 CanvasEditor(session: session, slide: s, selection: $selection, onPaste: { providers in
                     Task { await paste(providers) }
-                }, onFormat: hSize == .regular ? nil : { showInspector = true }) { _ in
+                }, onFormat: hSize == .regular ? nil : { showInspector = true },
+                   onPlaceholder: { _ in choosingSource = true }) { _ in
                     focusText += 1
                     if hSize != .regular { showInspector = true }
                 }
@@ -192,7 +224,8 @@ struct EditorView: View {
             } label: { Label("Form", systemImage: "star.square.on.square") }
             PhotosPicker(selection: $photo, matching: .images) { Label("Bild", systemImage: "photo") }
             Button { showGiphy = true } label: { Label("GIF", systemImage: "sparkles") }
-            Button { showAI = true } label: { Label("Gör en bild med AI", systemImage: "wand.and.stars") }
+            Button { aiStartsInLibrary = false; showAI = true } label: { Label("Gör en bild med AI", systemImage: "wand.and.stars") }
+            Button { addPlaceholder() } label: { Label("Bildplats", systemImage: "photo.badge.plus") }
             Button { selection = nil; drawing = true } label: { Label("Rita", systemImage: "pencil.tip.crop.circle") }
             Menu {
                 Button("Omröstning", systemImage: "chart.bar.fill") { addPoll(quiz: false) }
@@ -270,9 +303,33 @@ struct EditorView: View {
         placeImage(data)
     }
 
+    /// En tom bildplats att fylla senare (eller låta någon annan fylla).
+    private func addPlaceholder() {
+        place(Element(frame: centered(w: 760, h: 520), content: .image(.placeholder)))
+    }
+
+    /// Urklippets bild hamnar i den markerade bildplatsen. (Att läsa urklippet härifrån kan ge iOS fråga
+    /// "Tillåt inklistring"; knappen Klistra in i verktygsraden slipper den.)
+    private func pasteIntoPlaceholder() {
+        let pb = UIPasteboard.general
+        if let gif = pb.data(forPasteboardType: UTType.gif.identifier) { return placeImage(gif) }
+        if let img = pb.image, let data = img.pngData() { return placeImage(data) }
+        notice = "Det finns ingen bild i urklippet. Kopiera en bild först, till exempel i Safari."
+    }
+
     private func placeImage(_ data: Data) {
         guard let id = try? session.assets.importImage(data) else { return }
         let (pw, ph) = session.assets.pixelSize(id) ?? (4, 3)
+        // Är en bildplats markerad hamnar bilden där, inpassad i platsens ruta.
+        if let s = slide, let sel = selection, var e = s.element(sel), e.isImagePlaceholder {
+            let f = e.frame
+            let k = min(f.w / Double(pw), f.h / Double(ph))
+            let w = Double(pw) * k, h = Double(ph) * k
+            e.frame = Frame(x: f.x + (f.w - w) / 2, y: f.y + (f.h - h) / 2, w: w, h: h)
+            e.content = .image(ImageBox(assetID: id))
+            session.perform(.upsertElement(slide: s.id, e, at: nil))
+            return
+        }
         let scale = min(1100 / Double(pw), 800 / Double(ph))
         place(Element(frame: centered(w: Double(pw) * scale, h: Double(ph) * scale), content: .image(ImageBox(assetID: id))))
     }

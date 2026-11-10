@@ -151,13 +151,13 @@ final class TVModel {
         guard let s = session, case .lost = s.link, let w = wantedHost else { return }
         if let h = browser.hosts.first(where: { $0.id == w }) { missing = 0; return join(h) }
         // Presentationen vi väntar på delas inte längre. Finns det precis en annan, ta den efter en
-        // liten stund; annars vänta en halv minut och gå sedan till väntläget.
+        // liten stund; annars vänta tio sekunder och gå sedan till väntläget.
         missing += 1
         let others = browser.hosts.filter { !declined.contains($0.id) }
         if missing >= 3, others.count == 1 { missing = 0; return join(others[0]) }
-        // Telefonen hålls numera vaken i bakgrunden, så en presentation som varit borta i en halv minut
-        // är troligen stängd på riktigt (t.ex. appen sveptes bort utan att hinna säga adjö).
-        if missing >= 10 {
+        // Telefonen hålls numera vaken i bakgrunden, så en presentation vars annons varit borta i tio
+        // sekunder är troligen stängd på riktigt (t.ex. appen sveptes bort utan att hinna säga adjö).
+        if missing >= 3 {
             missing = 0
             notice = "Presentationen delas inte längre"
             wantedHost = nil; wantedStarted = 0; session = nil

@@ -76,8 +76,11 @@ final class FramedConnection: @unchecked Sendable {
         var len = UInt32(body.count).bigEndian
         var frame = Data(bytes: &len, count: 4)
         frame.append(body)
+        // Stark referens med flit: den som anropar släpper ofta anslutningen direkt efteråt (värden
+        // tömmer sin lista när den slutar dela). Utan den försvann anslutningen innan adjöt hunnit
+        // iväg på ett riktigt nät, och TV:n fick vänta ut ett avbrott i stället för att få beskedet.
         connection.send(content: frame, contentContext: .finalMessage, isComplete: true,
-                        completion: .contentProcessed { [weak self] _ in self?.cancel() })
+                        completion: .contentProcessed { _ in self.cancel() })
     }
 
     func cancel() {

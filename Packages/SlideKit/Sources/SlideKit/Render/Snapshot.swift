@@ -10,7 +10,8 @@ public enum Snapshot {
         guard let consumer = CGDataConsumer(data: out),
               let ctx = CGContext(consumer: consumer, mediaBox: &box, nil) else { return Data() }
         for slide in deck.slides {
-            let r = ImageRenderer(content: SlideCanvas(slide: slide, assets: assets).scaleEffect(0.5, anchor: .topLeading)
+            let r = ImageRenderer(content: SlideCanvas(slide: slide, assets: assets).environment(\.showsPlaceholders, false)
+                .scaleEffect(0.5, anchor: .topLeading)
                 .frame(width: box.width, height: box.height, alignment: .topLeading))
             ctx.beginPDFPage(nil)
             r.render { _, draw in draw(ctx) }

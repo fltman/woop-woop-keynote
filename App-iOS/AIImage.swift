@@ -232,6 +232,7 @@ struct PromptField: View {
 struct AIImageSheet: View {
     /// En bild att utgå från, t.ex. den som är markerad i redigeraren.
     var startReference: Data? = nil
+    var startInLibrary = false
     var onPick: (Data) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(AppModel.self) private var model
@@ -259,6 +260,7 @@ struct AIImageSheet: View {
                     }
                 }
             }
+            .onAppear { if startInLibrary { showLibrary = true } }
             .navigationTitle("Gör en bild")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

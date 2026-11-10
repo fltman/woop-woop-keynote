@@ -107,6 +107,7 @@ public struct PresentationView: View {
         SlideView(slide: slide, assets: assets, assetVersion: assetVersion,
                   hidden: hidden(slide), ghosts: presenter)
             .environment(\.liveState, live)
+            .environment(\.showsPlaceholders, false)
             .animation(.spring(duration: 0.6, bounce: 0.35), value: [state.revealed, state.gone])
             .overlay {
                 if tappable, let onTapElement { TapTargets(slide: slide, hidden: hidden(slide), onTap: onTapElement) }
