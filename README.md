@@ -27,7 +27,7 @@ and no accounts. The app's interface is in Swedish.
 
 ## Build
 
-Requirements: Xcode 26 or later, [XcodeGen](https://github.com/yonaskolb/XcodeGen), and an Apple
+Requirements: Xcode (developed with Xcode 27), [XcodeGen](https://github.com/yonaskolb/XcodeGen), and an Apple
 Developer account for running on real devices.
 
 ```sh
