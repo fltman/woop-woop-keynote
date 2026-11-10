@@ -146,23 +146,26 @@ struct RootView: View {
 struct ProfileSetup: View {
     @Environment(AppModel.self) private var model
     @State private var name = ""
-    @State private var color = 0
+    @State private var color = Int.random(in: 0..<Peer.palette.count)
     var body: some View {
-        VStack(spacing: 28) {
-            Text("Woop Woop").font(.system(size: 56, weight: .heavy, design: .rounded))
-            Text("Vad heter du?").font(.title2)
-            TextField("Namn", text: $name)
-                .textFieldStyle(.roundedBorder).font(.title2).frame(maxWidth: 360)
-                .submitLabel(.done)
-            ColorRow(selected: $color)
-            Button("Kör!") {
-                model.profile.name = name.trimmingCharacters(in: .whitespaces)
-                model.profile.colorIndex = color
+        ScrollView {
+            VStack(spacing: 24) {
+                Text("Woop Woop").font(.system(size: 52, weight: .heavy, design: .rounded))
+                Text("Bygg presentationer tillsammans och visa dem på TV:n.")
+                    .font(.headline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                ProfileCard(name: $name, colorIndex: $color)
+                Button {
+                    model.profile.colorIndex = color
+                    model.profile.name = name.trimmingCharacters(in: .whitespaces)
+                } label: { Text("Kör!").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 44) }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .buttonStyle(.borderedProminent).controlSize(.large)
-            .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            .padding(24)
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity)
         }
-        .padding()
+        .background(Color(.systemGroupedBackground))
     }
 }
 

@@ -197,31 +197,56 @@ struct TVRoot: View {
 
 struct HostPicker: View {
     let model: TVModel
+    @State private var music = WaitingMusic()
+    @Environment(\.scenePhase) private var phase
+    @FocusState private var focused: Bool
     var body: some View {
-        VStack(spacing: 50) {
-            Text("Woop Woop").font(.system(size: 96, weight: .heavy, design: .rounded))
-            if let n = model.notice { Text(n).font(.title3).foregroundStyle(.orange) }
-            if model.browser.hosts.isEmpty {
-                VStack(spacing: 20) {
-                    ProgressView()
-                    Text("Letar efter presentationer…").font(.title2)
-                    Text("Öppna en presentation på iPaden eller iPhonen och tryck på Dela.")
-                        .foregroundStyle(.secondary)
+        ZStack {
+            WaitingBackground()
+            VStack {
+                Spacer()
+                Label(music.muted ? "Play/paus sätter på musiken" : "Play/paus stänger av musiken",
+                      systemImage: music.muted ? "speaker.slash.fill" : "playpause.fill")
+                    .font(.callout).foregroundStyle(.white.opacity(0.6)).padding(.bottom, 30)
+            }
+            VStack(spacing: 44) {
+                HStack(spacing: 50) {
+                    LogoCards().scaleEffect(0.75).frame(width: 400, height: 280)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Woop Woop").font(.system(size: 120, weight: .heavy, design: .rounded))
+                        Text(model.browser.hosts.isEmpty ? "Scenen är ledig. Vem börjar?" : "Vilken presentation vill ni se?")
+                            .font(.system(size: 40, weight: .semibold)).opacity(0.85)
+                    }
+                    .foregroundStyle(.white)
                 }
-            } else {
-                Text("Vilken presentation?").font(.title2).foregroundStyle(.secondary)
-                ScrollView(.horizontal) {
-                    HStack(spacing: 40) {
-                        ForEach(model.browser.hosts) { h in
-                            Button { model.join(h) } label: {
-                                Label(h.name, systemImage: "rectangle.on.rectangle.angled")
-                                    .font(.title2).padding(30)
+                if let n = model.notice {
+                    Label(n, systemImage: "info.circle.fill").font(.title3.bold())
+                        .padding(.horizontal, 28).padding(.vertical, 14)
+                        .foregroundStyle(.black).background(Color(red: 1, green: 0.76, blue: 0.07), in: Capsule())
+                }
+                if model.browser.hosts.isEmpty {
+                    HowToSteps()
+                } else {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 40) {
+                            ForEach(model.browser.hosts) { h in
+                                Button { model.join(h) } label: {
+                                    Label(h.name, systemImage: "play.rectangle.fill")
+                                        .font(.title2.bold()).padding(30)
+                                }
                             }
                         }
+                        .padding(40)
                     }
-                    .padding(40)
                 }
             }
+            .padding(60)
         }
+        .focusable(model.browser.hosts.isEmpty)
+        .focused($focused)
+        .onPlayPauseCommand { music.muted.toggle() }
+        .onAppear { focused = true; music.start() }
+        .onDisappear { music.stop() }
+        .onChange(of: phase) { _, p in p == .active ? music.start() : music.stop() }
     }
 }

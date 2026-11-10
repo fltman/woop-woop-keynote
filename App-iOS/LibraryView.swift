@@ -62,7 +62,12 @@ struct LibraryView: View {
                 Button("Ta bort", role: .destructive) { if let d = toDelete { model.library.delete(d) }; toDelete = nil }
             }
         }
-        .onAppear { model.browser.start(); model.tvs.start() }
+        .onAppear {
+            model.browser.start(); model.tvs.start()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-profile") { editingProfile = true }
+            #endif
+        }
     }
 }
 
@@ -117,12 +122,103 @@ struct ProfileEditor: View {
     var body: some View {
         @Bindable var m = model
         NavigationStack {
-            Form {
-                TextField("Namn", text: $m.profile.name)
-                ColorRow(selected: $m.profile.colorIndex).padding(.vertical, 8)
+            ScrollView {
+                ProfileCard(name: $m.profile.name, colorIndex: $m.profile.colorIndex)
+                    .padding(20)
             }
-            .navigationTitle("Du")
-            .toolbar { Button("Klar") { dismiss() } }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Det här är du")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                Button("Klar") { dismiss() }.bold()
+                    .disabled(model.profile.name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .interactiveDismissDisabled(model.profile.name.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+}
+
+/// Namn och färg, med en förhandsvisning av hur man syns för de andra och på TV:n.
+struct ProfileCard: View {
+    @Binding var name: String
+    @Binding var colorIndex: Int
+    @FocusState private var typing: Bool
+
+    private var color: Color { Peer.palette[colorIndex % Peer.palette.count].color }
+    private var shown: String { name.trimmingCharacters(in: .whitespaces).isEmpty ? "Du" : name.trimmingCharacters(in: .whitespaces) }
+    private static let colorNames = ["Röd", "Blå", "Grön", "Orange", "Lila", "Rosa", "Turkos"]
+
+    var body: some View {
+        VStack(spacing: 22) {
+            // Stor rund bricka med första bokstaven, som på TV:n och i listan över vilka som är med.
+            Text(String(shown.prefix(1)).uppercased())
+                .font(.system(size: 64, weight: .heavy, design: .rounded)).foregroundStyle(.white)
+                .frame(width: 128, height: 128)
+                .background(color.gradient, in: Circle())
+                .shadow(color: color.opacity(0.5), radius: 16, y: 6)
+                .animation(.spring(duration: 0.4, bounce: 0.5), value: colorIndex)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Vad heter du?").font(.subheadline.bold()).foregroundStyle(.secondary)
+                TextField("Ditt namn", text: $name)
+                    .font(.title2.bold())
+                    .textInputAutocapitalization(.words).autocorrectionDisabled()
+                    .submitLabel(.done).focused($typing)
+                    .padding(14)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                    .overlay { RoundedRectangle(cornerRadius: 14).stroke(typing ? color : .clear, lineWidth: 2) }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Välj din färg").font(.subheadline.bold()).foregroundStyle(.secondary)
+                HStack(spacing: 0) {
+                    ForEach(Peer.palette.indices, id: \.self) { i in
+                        Button { colorIndex = i } label: {
+                            Circle().fill(Peer.palette[i].color.gradient)
+                                .frame(width: 38, height: 38)
+                                .overlay { if i == colorIndex { Image(systemName: "checkmark").font(.headline.bold()).foregroundStyle(.white) } }
+                                .padding(4)
+                                .overlay { if i == colorIndex { Circle().stroke(Peer.palette[i].color, lineWidth: 3) } }
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Self.colorNames[i % Self.colorNames.count])
+                        .accessibilityAddTraits(i == colorIndex ? .isSelected : [])
+                    }
+                }
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Så syns du för de andra").font(.subheadline.bold()).foregroundStyle(.secondary)
+                // En liten bild där "du" har markerat en ruta, precis som i redigeraren och på TV:n.
+                ZStack {
+                    LinearGradient(colors: [Color(red: 0.11, green: 0.08, blue: 0.39), Color(red: 0.44, green: 0.12, blue: 0.32)],
+                                   startPoint: .top, endPoint: .bottom)
+                    VStack(alignment: .leading, spacing: 8) {
+                        RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.9)).frame(width: 150, height: 14)
+                        RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.5)).frame(width: 100, height: 8)
+                        RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.5)).frame(width: 120, height: 8)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 22)
+                    Image(systemName: "star.fill").font(.system(size: 44)).foregroundStyle(Color(red: 1, green: 0.76, blue: 0.07))
+                        .padding(10)
+                        .overlay { RoundedRectangle(cornerRadius: 4).stroke(color, lineWidth: 3) }
+                        .overlay(alignment: .topLeading) {
+                            Text(shown).font(.caption.bold()).foregroundStyle(.white).lineLimit(1)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(color, in: Capsule()).fixedSize()
+                                .offset(x: -4, y: -24)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 44).padding(.top, 14)
+                }
+                .frame(height: 130)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .animation(.easeInOut(duration: 0.25), value: colorIndex)
+                .accessibilityLabel("Förhandsvisning: det du markerar får en ram i din färg med ditt namn")
+            }
         }
     }
 }
