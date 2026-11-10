@@ -44,6 +44,8 @@ final class TVModel {
 
     /// Presentationen TV:n visar (eller väntar på att få tillbaka).
     private(set) var wantedHost: String?
+    /// När den delningen började. En delning som börjat senare tar över.
+    private var wantedStarted = 0.0
     /// Varför TV:n gick tillbaka till väntläget (t.ex. "Värden slutade dela").
     private(set) var notice: String?
     /// Presentationer man aktivt lämnat med fjärren; dem hoppar TV:n inte in i igen av sig själv.
@@ -80,12 +82,13 @@ final class TVModel {
         s.join(host.endpoint)
         session = s
         wantedHost = host.id
+        wantedStarted = host.started
         declined.remove(host.id)
     }
 
     func leave() {
         if let w = wantedHost { declined.insert(w) }
-        wantedHost = nil
+        wantedHost = nil; wantedStarted = 0
         session?.leave()
         session = nil
     }
@@ -100,6 +103,13 @@ final class TVModel {
     /// tar den presentation som dök upp senast; en TV som visar något levande stannar kvar.
     func hostsChanged(old: [HostBrowser.Host], new: [HostBrowser.Host]) {
         if let p = pendingInvite, let h = new.first(where: { $0.id == p }) { return join(h) }
+        // Den senaste delningen tar över, även om TV:n visar något annat (CONTRACT §9).
+        let now = Date()
+        let newest = new.filter { h in
+            h.id != wantedHost && h.started > wantedStarted && !declined.contains(h.id)
+                && (cooldown[h.id].map { now.timeIntervalSince($0) > 15 } ?? true)
+        }.max { $0.started < $1.started }
+        if let newest { return join(newest) }
         guard isIdle else { return }
         if let w = wantedHost, let h = new.first(where: { $0.id == w }) { return join(h) }
         // Jämför på presentationens fasta id: ett namnbyte är inte en ny presentation.
@@ -111,6 +121,8 @@ final class TVModel {
 
     /// När värden sa adjö: presentationens id och när, så att vi inte försöker igen direkt.
     private var cooldown: [String: Date] = [:]
+    /// Antal kontroller i rad (var tredje sekund) där presentationen vi väntar på inte har synts.
+    private var missing = 0
 
     private func joinOnlyOpenHost(_ hosts: [HostBrowser.Host]) {
         let now = Date()
@@ -130,15 +142,24 @@ final class TVModel {
             // och vid olika appversioner ska vi inte fråga om var tredje sekund). Men spärra den inte:
             // delar telefonen samma presentation igen ska TV:n visa den.
             if let w = wantedHost { cooldown[w] = Date() }
-            wantedHost = nil; session = nil
+            wantedHost = nil; wantedStarted = 0; session = nil
             return
         }
         // Ledig TV och precis en presentation delas: visa den. Händelsen "ny presentation" kan utebli
         // när samma presentation slutar delas och delas igen i ett svep.
         if session == nil { joinOnlyOpenHost(browser.hosts) }
-        guard let s = session, case .lost = s.link, let w = wantedHost,
-              let h = browser.hosts.first(where: { $0.id == w }) else { return }
-        join(h)
+        guard let s = session, case .lost = s.link, let w = wantedHost else { return }
+        if let h = browser.hosts.first(where: { $0.id == w }) { missing = 0; return join(h) }
+        // Presentationen vi väntar på delas inte längre. Finns det precis en annan, ta den efter en
+        // liten stund; annars vänta ett par minuter (telefonen kan vara låst) och gå sedan till väntläget.
+        missing += 1
+        let others = browser.hosts.filter { !declined.contains($0.id) }
+        if missing >= 3, others.count == 1 { missing = 0; return join(others[0]) }
+        if missing >= 40 {
+            missing = 0
+            notice = "Presentationen delas inte längre"
+            wantedHost = nil; wantedStarted = 0; session = nil
+        }
     }
 }
 

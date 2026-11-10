@@ -77,6 +77,9 @@ struct PresentView: View {
     }
 
     // MARK: Presentatörens skärm (TV:n visar presentationen)
+    //
+    // Tänkt för en hand: det man läser (anteckningarna) får mest plats, det man trycker på ligger
+    // nederst vid tummen, och "Härnäst" säger alltid vad nästa tryck gör.
 
     private var presenter: some View {
         GeometryReader { geo in
@@ -84,89 +87,199 @@ struct PresentView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 if wide {
-                    HStack(spacing: 16) {
-                        VStack(spacing: 12) { current; controls }
-                        VStack(spacing: 12) { topRow; nextPreview; notesBox }.frame(width: geo.size.width * 0.3)
+                    HStack(spacing: 14) {
+                        VStack(spacing: 10) { topRow; current; Spacer(minLength: 0) }
+                        VStack(spacing: 10) { upNext; notesBox; toolRow; navRow }.frame(width: geo.size.width * 0.42)
                     }
                     .padding(12)
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 10) {
                         topRow
                         current
-                        HStack(alignment: .top, spacing: 12) { nextPreview.frame(width: geo.size.width * 0.4); notesBox }
-                        controls
+                        upNext
+                        notesBox
+                        toolRow
+                        navRow
                     }
-                    .padding(12)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
                 }
             }
         }
         .preferredColorScheme(.dark)
+        .sensoryFeedback(.impact(weight: .light), trigger: session.present.revealed.count + session.present.slideIndex * 100)
     }
+
+    private var slide: Slide? { session.deck.slides[safe: index] }
+    /// Nästa dolda element på bilden, om det finns något kvar att visa.
+    private var nextReveal: Element? {
+        guard let s = slide, let id = s.revealOrder.first(where: { !session.present.revealed.contains($0) }) else { return nil }
+        return s.element(id)
+    }
+    private var isLastStep: Bool { nextReveal == nil && index >= session.deck.slides.count - 1 }
 
     private var current: some View {
         slides
             .aspectRatio(SlideSize.width / SlideSize.height, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                // Tydligt att fingret nu pekar eller ritar i stället för att bläddra.
+                if tool != nil { RoundedRectangle(cornerRadius: 10).stroke(Color.yellow, lineWidth: 3) }
+            }
+            .overlay(alignment: .bottom) {
+                if let tool {
+                    Text(tool == .laser ? "Dra på bilden för att peka" : "Dra på bilden för att rita")
+                        .font(.caption.bold()).foregroundStyle(.black)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Color.yellow, in: Capsule()).padding(6)
+                        .allowsHitTesting(false)
+                }
+            }
             .contentShape(Rectangle())
-            .onTapGesture { session.remote(.next) }
+            .onTapGesture { if tool == nil { session.remote(.next) } }
+            .gesture(DragGesture(minimumDistance: 30).onEnded { v in
+                guard tool == nil else { return }
+                if v.translation.width < -40 { session.remote(.next) } else if v.translation.width > 40 { session.remote(.previous) }
+            })
     }
 
     private var topRow: some View {
-        HStack {
+        HStack(spacing: 10) {
             closeButton
-            counter
+            Text("Bild \(index + 1) av \(session.deck.slides.count)").font(.headline.monospacedDigit())
             Spacer()
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                let s = Int(ctx.date.timeIntervalSince(started))
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text(String(format: "%d:%02d", s / 60, s % 60)).font(.title2.monospacedDigit().bold())
-                    Text(ctx.date.formatted(date: .omitted, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                let s = max(Int(ctx.date.timeIntervalSince(started)), 0)
+                Button { started = Date() } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "timer")
+                        Text(String(format: "%d:%02d", s / 60, s % 60)).monospacedDigit()
+                    }
+                    .font(.title3.bold())
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.white.opacity(0.12), in: Capsule())
                 }
-                .onTapGesture { started = Date() }
-                .accessibilityLabel("Tid sedan start. Tryck för att nollställa.")
+                .foregroundStyle(.white)
+                .accessibilityLabel("Tid sedan start, \(s / 60) minuter \(s % 60) sekunder. Tryck för att nollställa.")
             }
         }
     }
 
-    @ViewBuilder private var nextPreview: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Nästa").font(.caption.bold()).foregroundStyle(.secondary)
-            if let next = session.deck.slides[safe: index + 1] {
-                SlideView(slide: next, assets: session.assets, assetVersion: session.assetVersion)
-                    .environment(\.animatesImages, false)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else {
-                RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.08))
-                    .aspectRatio(SlideSize.width / SlideSize.height, contentMode: .fit)
-                    .overlay { Text("Slut").font(.headline).foregroundStyle(.secondary) }
+    /// Vad nästa tryck gör: visar ett dolt element, byter bild eller avslutar.
+    private var upNext: some View {
+        HStack(spacing: 12) {
+            Group {
+                if nextReveal != nil {
+                    Image(systemName: "hand.tap.fill").font(.title2).foregroundStyle(.purple)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity).background(.purple.opacity(0.18))
+                } else if let next = session.deck.slides[safe: index + 1] {
+                    SlideView(slide: next, assets: session.assets, assetVersion: session.assetVersion)
+                        .environment(\.animatesImages, false)
+                } else {
+                    Image(systemName: "flag.checkered").font(.title2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity).background(.white.opacity(0.08))
+                }
+            }
+            .frame(width: 96, height: 54)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Härnäst").font(.caption.bold()).foregroundStyle(.secondary)
+                Text(upNextText).font(.subheadline.bold()).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            if let s = slide, !s.revealOrder.isEmpty {
+                // En prick per dolt element på bilden: fyllda är redan visade.
+                HStack(spacing: 5) {
+                    ForEach(s.revealOrder, id: \.self) { id in
+                        Circle().fill(session.present.revealed.contains(id) ? Color.purple : Color.white.opacity(0.25))
+                            .frame(width: 9, height: 9)
+                    }
+                }
+                .accessibilityLabel("\(s.revealOrder.filter { session.present.revealed.contains($0) }.count) av \(s.revealOrder.count) visade")
             }
         }
+        .padding(8)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var upNextText: String {
+        if let e = nextReveal { return "Visar \(e.definiteName)" }
+        if index + 1 < session.deck.slides.count { return "Bild \(index + 2)" }
+        return "Det här var sista bilden"
     }
 
     private var notesBox: some View {
         ScrollView {
-            Text(notes.isEmpty ? "Inga anteckningar till den här bilden." : notes)
-                .font(.title3).foregroundStyle(notes.isEmpty ? .secondary : .primary)
+            Text(notes.isEmpty ? "Inga anteckningar till den här bilden. Skriv dem under bildens format i redigeraren." : notes)
+                .font(notes.isEmpty ? .callout : .title3).foregroundStyle(notes.isEmpty ? .secondary : .primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
         }
-        .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .id(index)   // börja överst på varje ny bild
     }
 
-    private var controls: some View {
+    /// Pekare och penna med namn, och ljudknapparna direkt (ett tryck, ingen meny).
+    private var toolRow: some View {
+        HStack(spacing: 8) {
+            chip("Peka", "dot.circle.and.hand.point.up.left.fill", on: tool == .laser) {
+                tool = tool == .laser ? nil : .laser
+                session.send(.pointer(nil))
+            }
+            chip("Rita", "pencil.tip", on: tool == .pen) { tool = tool == .pen ? nil : .pen }
+            if !session.live.ink.isEmpty {
+                chip("Sudda", "eraser.fill", on: false) { session.send(.clearInk) }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Jingle.allCases, id: \.self) { j in
+                        Button { session.send(.jingle(j, nonce: UUID())) } label: {
+                            Text(j.emoji).font(.title2).frame(width: 48, height: 48)
+                                .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        .accessibilityLabel("Spela ljudet \(j.name)")
+                    }
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                Text("Ljud").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary).offset(x: 2, y: -11)
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    private func chip(_ title: String, _ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: symbol).font(.body.bold())
+                Text(title).font(.system(size: 10, weight: .bold))
+            }
+            .frame(width: 52, height: 48)
+            .foregroundStyle(on ? .black : .white)
+            .background(on ? Color.yellow : Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// Tumzonen: liten tillbaka, stor nästa. På sista steget blir nästa "Avsluta".
+    private var navRow: some View {
         HStack(spacing: 10) {
             Button { session.remote(.previous) } label: {
-                Image(systemName: "chevron.left").font(.title2.bold()).frame(width: 56, height: 56)
-                    .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+                Image(systemName: "chevron.left").font(.title2.bold()).frame(width: 72, height: 68)
+                    .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
             }
+            .disabled(index == 0)
+            .opacity(index == 0 ? 0.4 : 1)
             .accessibilityLabel("Förra bilden")
-            tools
-            Spacer(minLength: 0)
-            Button { session.remote(.next) } label: {
-                Label("Nästa", systemImage: "chevron.right").font(.title3.bold())
-                    .frame(maxWidth: 220, minHeight: 56)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14))
+            Button { isLastStep ? stop() : session.remote(.next) } label: {
+                HStack {
+                    Text(isLastStep ? "Avsluta" : (nextReveal != nil ? "Visa nästa" : "Nästa bild"))
+                    Image(systemName: isLastStep ? "checkmark" : "chevron.right")
+                }
+                .font(.title2.bold())
+                .frame(maxWidth: .infinity, minHeight: 68)
+                .background(isLastStep ? Color.green : (nextReveal != nil ? Color.purple : Color.accentColor), in: RoundedRectangle(cornerRadius: 16))
             }
         }
         .foregroundStyle(.white)

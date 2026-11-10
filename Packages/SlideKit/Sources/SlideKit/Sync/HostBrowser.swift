@@ -10,6 +10,8 @@ public final class HostBrowser {
         public var id: String
         public var name: String
         public var endpoint: NWEndpoint
+        /// När delningen började (millisekunder sedan 1970), ur annonsen. Den senaste tar över.
+        public var started: Double = 0
     }
 
     public private(set) var hosts: [Host] = []
@@ -27,9 +29,9 @@ public final class HostBrowser {
             MainActor.assumeIsolated {
                 self?.hosts = results.compactMap { r in
                     guard case .service(let name, _, _, _) = r.endpoint else { return nil }
-                    var key: String?
-                    if case .bonjour(let txt) = r.metadata { key = txt["id"] }
-                    return Host(id: key ?? name, name: name, endpoint: r.endpoint)
+                    var key: String?, started = 0.0
+                    if case .bonjour(let txt) = r.metadata { key = txt["id"]; started = txt["t"].flatMap(Double.init) ?? 0 }
+                    return Host(id: key ?? name, name: name, endpoint: r.endpoint, started: started)
                 }.sorted { $0.name < $1.name }
             }
         }

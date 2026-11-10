@@ -23,6 +23,7 @@ enum Demo {
                                    content: .shape(ShapeBox(kind: .triangle, fill: RGBA(hex: "FF4757"))), reveal: .flyUp))
         s2.elements.append(Element(frame: Frame(x: 1420, y: 330, w: 180, h: 180),
                                    content: .shape(ShapeBox(kind: .star, fill: RGBA(hex: "FFC312"))), reveal: .pop))
+        s2.notes = "Börja med att fråga om någon har sett en vulkan.\nSköldvulkaner är platta, stratovulkaner är spetsiga.\nTryck fram triangeln och stjärnan."
         deck.slides.append(s2)
         var s3 = SlideLayout.bigWord.makeSlide(theme: Theme.all[2])
         if case .text(var t) = s3.elements[0].content { t.text = "BOOM!"; s3.elements[0].content = .text(t) }

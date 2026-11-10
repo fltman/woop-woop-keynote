@@ -60,6 +60,9 @@ struct EditorView: View {
                 Button("Nej", role: .cancel) { session.answer(p.id, admit: false) }
             }
         } message: { Text("Då kan hen ändra i presentationen tillsammans med dig.") }
+        .alert("Din delning avslutades", isPresented: .init(get: { model.takeover != nil }, set: { if !$0 { model.takeover = nil } })) {
+            Button("OK") {}
+        } message: { Text("»\(model.takeover ?? "")« började delas och tog över. Tryck Dela om du vill ta tillbaka TV:n.") }
         .onChange(of: selection) { _, new in session.select(new) }
         // Skärmen får inte somna medan man delar: då pausar iOS appen och TV:n tappar kontakten.
         .onChange(of: session.role, initial: true) { _, r in UIApplication.shared.isIdleTimerDisabled = r == .host }
@@ -85,6 +88,16 @@ struct EditorView: View {
             }
             #endif
             session.setPresence(slide: currentSlide)
+            #if DEBUG
+            // -presenter: börja presentera bild 2 efter en stund (för att se presentatörens skärm på simulatorn).
+            if ProcessInfo.processInfo.arguments.contains("-presenter") {
+                Task {
+                    try? await Task.sleep(nanoseconds: 7_000_000_000)
+                    if deck.slides.count > 1 { currentSlide = deck.slides[1].id }
+                    startPresenting()
+                }
+            }
+            #endif
         }
     }
 

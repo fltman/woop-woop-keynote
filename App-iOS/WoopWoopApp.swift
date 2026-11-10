@@ -10,7 +10,7 @@ struct WoopWoopApp: App {
             RootView()
                 .environment(model)
                 .onChange(of: phase) { _, p in model.scenePhaseChanged(p) }
-                .onChange(of: model.browser.hosts) { _, _ in model.rejoinIfLost() }
+                .onChange(of: model.browser.hosts) { _, _ in model.rejoinIfLost(); model.yieldToNewerShare() }
                 #if DEBUG
                 .task { if Demo.requested { Demo.run(model) } }
                 #endif
@@ -46,6 +46,7 @@ final class AppModel {
     private var joinedHost: String?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var wasInBackground = false
+    private let keeper = BackgroundKeeper()
 
     init() {
         browser.start()
@@ -59,17 +60,22 @@ final class AppModel {
         }
     }
 
-    /// iOS pausar appen i bakgrunden (skärmlås, annan app, fjärren). Den som delar får ca 30 s
-    /// extra så att en snabb titt på något annat inte bryter, och delningen startar om när appen är framme.
+    /// iOS pausar appen i bakgrunden (skärmlås, annan app, fjärren). BackgroundKeeper håller den vaken
+    /// upp till en kvart; därefter pausas den, och delningen startar om när appen är framme.
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
         case .background:
             wasInBackground = true
+            // Delar vi eller är med i en delning: håll appen vaken (upp till en kvart).
+            if let s = session, s.role != .solo { keeper.start() }
             guard session?.role == .host, backgroundTask == .invalid else { return }
             backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Dela") { [weak self] in self?.endBackgroundTask() }
         case .active:
+            // Fick appen köra hela tiden lever delningen: rör den inte. Annars (pausad av iOS) gör om den.
+            let alive = keeper.isRunning && session?.link == .connected
+            keeper.stop()
             endBackgroundTask()
-            if wasInBackground { session?.resumeHosting() }
+            if wasInBackground && !alive { session?.resumeHosting() }
             wasInBackground = false
             rejoinIfLost()
         default: break
@@ -80,6 +86,16 @@ final class AppModel {
         guard backgroundTask != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTask)
         backgroundTask = .invalid
+    }
+
+    /// Någon annan började dela efter mig: då tar den delningen över och min avslutas (CONTRACT §9).
+    var takeover: String?
+    func yieldToNewerShare() {
+        guard let s = session, s.role == .host, let mine = s.sharedAt else { return }
+        let t = mine.timeIntervalSince1970 * 1000
+        guard let newer = browser.hosts.filter({ $0.id != s.shareKey && $0.started > t }).max(by: { $0.started < $1.started }) else { return }
+        s.stopHosting(reason: "\(newer.name) visas nu i stället")
+        takeover = newer.name
     }
 
     func rejoinIfLost() {

@@ -44,12 +44,14 @@ vault/                 Obsidian-vault, gitignorerad. Idéer och öppna frågor.
 8. **Barnens innehåll lämnar aldrig hemnätet** om inte någon exporterar och delar själv.
    Enda undantaget: sökorden i GIPHY-sökningen (§13).
 9. **Inget delas förrän man själv trycker på Dela.** Då visas presentationen direkt på en
-   ledig TV, utan att någon behöver välja med fjärren. En TV som visar något levande stannar kvar där.
+   TV, utan att någon behöver välja med fjärren. Den senaste delningen tar över: börjar någon
+   annan dela avslutas den tidigare delningen (annonsen bär starttiden) och TV:n byter.
 10. **Värden släpper in redigerare** (ja/nej). TV:n bara tittar och kommer in direkt.
     Den som släppts in en gång kommer in direkt igen efter ett avbrott.
 11. **Avbrott är det normala.** iOS pausar appen vid skärmlås, appbyte eller fjärren.
-    Den som delar håller skärmen vaken, får cirka 30 s i bakgrunden och delar igen när appen
-    kommer fram. Klienter och TV återansluter själva. Råa nätverksfel visas aldrig.
+    Den som delar håller skärmen vaken. I bakgrunden hålls appen vid liv upp till en kvart
+    (tyst ljud, `BackgroundKeeper`), så att man kan hämta en bild i Safari utan att TV:n tappar
+    kontakten. Därefter pausas den och delar igen när appen kommer fram. Klienter och TV återansluter själva. Råa nätverksfel visas aldrig.
 12. **Scenen är en livesändning.** Kameran följer bilden där något händer, ändringar lyser
     i personens färg, och flödet bredvid bilden (aldrig ovanpå) säger vem som gör vad.
     Anteckningar syns aldrig på scenen.

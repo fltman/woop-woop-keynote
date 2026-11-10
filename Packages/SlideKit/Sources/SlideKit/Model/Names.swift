@@ -71,3 +71,8 @@ extension DeckTransition {
         switch self { case .none: "Ingen"; case .fade: "Tona"; case .push: "Skjut"; case .wipe: "Svep" }
     }
 }
+
+extension Element {
+    /// "stjärnan", "texten", "fotot": så att presentatören får veta vad nästa tryck visar.
+    public var definiteName: String { content.forms.1 }
+}

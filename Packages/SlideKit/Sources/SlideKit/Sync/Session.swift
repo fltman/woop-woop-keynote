@@ -334,6 +334,7 @@ public final class Session {
     public func startHosting(advertise: Bool = true, port: UInt16 = 0) throws {
         guard role == .solo else { return }
         advertising = advertise
+        sharedAt = Date()
         try makeListener(port: port)
         role = .host
         link = .connecting
@@ -405,6 +406,8 @@ public final class Session {
     /// Presentationens fasta id i annonsen. Namnet kan bytas medan man delar; id:t består,
     /// så TV:n och de andra hittar tillbaka efter ett avbrott.
     public var shareKey: String { confirmed.id.uuidString }
+    /// När delningen började. Står i annonsen: den senaste delningen tar över (CONTRACT §9).
+    public private(set) var sharedAt: Date?
 
     /// Ber en Apple TV visa den här presentationen. Delar först om vi inte redan gör det.
     public func invite(tv endpoint: NWEndpoint) {
@@ -424,13 +427,15 @@ public final class Session {
         while name.utf8.count > 63 { name.removeLast() }
         var txt = NWTXTRecord()
         txt["id"] = shareKey
+        if let t = sharedAt { txt["t"] = String(Int(t.timeIntervalSince1970 * 1000)) }
         return NWListener.Service(name: name, type: Bonjour.type, txtRecord: txt)
     }
 
-    public func stopHosting() {
+    public func stopHosting(reason: String = "Värden slutade dela") {
         guard role == .host else { return }
+        sharedAt = nil
         waiting.removeAll(); joinRequests.removeAll(); admitted.removeAll()
-        for c in clients.values { c.sendAndClose(.bye(reason: "Värden slutade dela")) }
+        for c in clients.values { c.sendAndClose(.bye(reason: reason)) }
         clients.removeAll(); clientPeer.removeAll()
         listener?.cancel(); listener = nil
         stopAudience()

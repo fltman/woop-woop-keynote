@@ -26,6 +26,10 @@ final class FramedConnection: @unchecked Sendable {
     var onMessage: ((Wire) -> Void)?
     var onClose: ((String?) -> Void)?
     private var closed = false
+    private var ready = false
+    /// Så länge väntar vi på att nå den andra sidan. En värd som försvunnit (appen stängdes) kan
+    /// annars lämna anslutningen hängande i "ansluter" för alltid.
+    static let connectTimeout: TimeInterval = 8
 
     static let maxMessage = 64 * 1024 * 1024
 
@@ -36,6 +40,7 @@ final class FramedConnection: @unchecked Sendable {
             guard let self else { return }
             switch state {
             case .ready:
+                self.ready = true
                 self.onReady?()
                 self.readHeader()
             case .failed(let e):
@@ -49,6 +54,10 @@ final class FramedConnection: @unchecked Sendable {
             }
         }
         connection.start(queue: .main)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.connectTimeout) { [weak self] in
+            guard let self, !self.ready else { return }
+            self.close("ingen kontakt")
+        }
     }
 
     func send(_ message: Wire) {

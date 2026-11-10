@@ -36,6 +36,7 @@ targets:
         NSLocalNetworkUsageDescription: Woop Woop hittar presentationer och Apple TV i hemnätet så att ni kan bygga tillsammans.
         NSBonjourServices: [_woopwoop._tcp, _woopwoop-tv._tcp]
         GiphyAPIKey: $(GIPHY_API_KEY)
+        UIBackgroundModes: [audio]
         NSMicrophoneUsageDescription: Woop Woop spelar in ljud som spelas när man trycker på något i presentationen.
         LSSupportsOpeningDocumentsInPlace: false
         UIFileSharingEnabled: false
