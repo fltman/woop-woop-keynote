@@ -1,0 +1,57 @@
+name: WoopWoop
+options:
+  bundleIdPrefix: com.bjarby
+  deploymentTarget:
+    iOS: "18.0"
+    tvOS: "18.0"
+  createIntermediateGroups: true
+packages:
+  SlideKit:
+    path: Packages/SlideKit
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: V783A2L763
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  WoopWoop:
+    type: application
+    platform: iOS
+    sources: [App-iOS]
+    dependencies:
+      - package: SlideKit
+    info:
+      path: App-iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Woop Woop
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSLocalNetworkUsageDescription: Woop Woop hittar presentationer och Apple TV i hemnätet så att ni kan bygga tillsammans.
+        NSBonjourServices: [_woopwoop._tcp]
+        LSSupportsOpeningDocumentsInPlace: false
+        UIFileSharingEnabled: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bjarby.woopwoop
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+  WoopWoopTV:
+    type: application
+    platform: tvOS
+    sources: [App-tvOS]
+    dependencies:
+      - package: SlideKit
+    info:
+      path: App-tvOS/Info.plist
+      properties:
+        CFBundleDisplayName: Woop Woop
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: Woop Woop hittar presentationer i hemnätet så att TV:n kan visa dem.
+        NSBonjourServices: [_woopwoop._tcp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bjarby.woopwoop.tv
