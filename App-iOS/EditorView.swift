@@ -153,7 +153,10 @@ struct EditorView: View {
             if ProcessInfo.processInfo.arguments.contains("-presenter") {
                 Task {
                     try? await Task.sleep(nanoseconds: 7_000_000_000)
-                    if deck.slides.count > 1 { currentSlide = deck.slides[1].id }
+                    // -slide N väljer bild (0 = första); annars bild 2.
+                    let args = ProcessInfo.processInfo.arguments
+                    let n = args.firstIndex(of: "-slide").flatMap { $0 + 1 < args.count ? Int(args[$0 + 1]) : nil } ?? 1
+                    if deck.slides.indices.contains(n) { currentSlide = deck.slides[n].id }
                     startPresenting()
                 }
             }

@@ -8,27 +8,9 @@ enum Demo {
     static var requested: Bool { ProcessInfo.processInfo.arguments.contains("-demo") }
 
     static func run(_ model: AppModel) {
-        if model.profile.name.isEmpty { model.profile.name = "Ida" }
-        var deck = Deck.new(title: "Vulkaner", theme: Theme.all[0])
-        if case .text(var t) = deck.slides[0].elements[1].content {
-            t.text = "av Ida, Leo och Mio"
-            deck.slides[0].elements[1].content = .text(t)
-        }
-        var s2 = SlideLayout.titleAndText.makeSlide(theme: Theme.all[0])
-        if case .text(var t) = s2.elements[0].content { t.text = "Tre sorters vulkaner"; s2.elements[0].content = .text(t) }
-        if case .text(var t) = s2.elements[1].content {
-            t.text = "• Sköldvulkaner\n• Stratovulkaner\n• Kalderor"; s2.elements[1].content = .text(t)
-        }
-        s2.elements.append(Element(frame: Frame(x: 1300, y: 420, w: 420, h: 380), rotation: -8,
-                                   content: .shape(ShapeBox(kind: .triangle, fill: RGBA(hex: "FF4757"))), reveal: .flyUp))
-        s2.elements.append(Element(frame: Frame(x: 1420, y: 330, w: 180, h: 180),
-                                   content: .shape(ShapeBox(kind: .star, fill: RGBA(hex: "FFC312"))), reveal: .pop))
-        s2.notes = "Börja med att fråga om någon har sett en vulkan.\nSköldvulkaner är platta, stratovulkaner är spetsiga.\nTryck fram triangeln och stjärnan."
-        deck.slides.append(s2)
-        var s3 = SlideLayout.bigWord.makeSlide(theme: Theme.all[2])
-        if case .text(var t) = s3.elements[0].content { t.text = "BOOM!"; s3.elements[0].content = .text(t) }
-        s3.transition = .push
-        deck.slides.append(s3)
+        // Demot har alltid samma påhittade person, oavsett vem som är inloggad på simulatorn.
+        model.profile.name = "Alex"
+        let deck = makeDeck(model.library.assets)
         model.library.save(deck)
         model.open(deck)
         if ProcessInfo.processInfo.arguments.contains("-seedpaste") { seedPasteboard() }
@@ -47,6 +29,56 @@ enum Demo {
         if ProcessInfo.processInfo.arguments.contains("-script"), let s = model.session {
             Task { await script(s) }
         }
+    }
+
+    /// Demopresentationen. Med -demoimages <mapp> (bg.png och cut.png) får den riktiga bilder.
+    static func makeDeck(_ assets: AssetStore) -> Deck {
+        let args = ProcessInfo.processInfo.arguments
+        func image(_ name: String) -> String? {
+            guard let i = args.firstIndex(of: "-demoimages"), i + 1 < args.count,
+                  let d = try? Data(contentsOf: URL(fileURLWithPath: args[i + 1]).appendingPathComponent(name)) else { return nil }
+            return try? assets.importImage(d)
+        }
+        let navy = RGBA(hex: "0F1226"), gold = RGBA(hex: "FFC312"), soft = RGBA(hex: "E6E8F5")
+        func text(_ t: String, _ size: Double, _ f: Frame, color: RGBA = .white, bold: Bool = false, align: TextAlign = .leading) -> Element {
+            Element(frame: f, content: .text(TextBox(text: t, style: TextStyle(font: .trebuchet, size: size, color: color, bold: bold, align: align))))
+        }
+
+        var s1 = Slide(background: image("bg.png").map { .image(assetID: $0) } ?? Theme.all[0].background)
+        s1.elements = [text("Vulkaner", 190, Frame(x: 110, y: 90, w: 1100, h: 240), bold: true),
+                       text("av Alex, Sam och Kim", 60, Frame(x: 118, y: 330, w: 1100, h: 90), color: soft)]
+
+        var s2 = Slide(background: .solid(navy), transition: .fade)
+        s2.elements = [text("Så är en vulkan uppbyggd", 96, Frame(x: 110, y: 80, w: 1700, h: 140), bold: true),
+                       text("• Magmakammaren ligger djupt under berget\n• Magman stiger genom en kanal\n• Aska och lava bygger lager på lager",
+                            54, Frame(x: 110, y: 290, w: 860, h: 420), color: soft)]
+        if let cut = image("cut.png") {
+            s2.elements.append(Element(frame: Frame(x: 1030, y: 250, w: 780, h: 585), content: .image(ImageBox(assetID: cut)), reveal: .pop))
+        } else {
+            s2.elements.append(Element(frame: Frame(x: 1300, y: 420, w: 420, h: 380), rotation: -8,
+                                       content: .shape(ShapeBox(kind: .triangle, fill: RGBA(hex: "FF4757"))), reveal: .flyUp))
+        }
+        s2.elements.append(text("Varmast: 1 200 grader", 60, Frame(x: 110, y: 760, w: 860, h: 100), color: gold, bold: true))
+        s2.elements[s2.elements.count - 1].reveal = .flyFromLeft
+        s2.notes = "Börja med att fråga om någon har sett en vulkan.\nPeka på magmakammaren i bilden.\nTryck fram bilden först, sedan temperaturen."
+
+        var s3 = Slide(background: .solid(navy), transition: .push)
+        s3.elements = [text("Tre kända vulkaner", 96, Frame(x: 110, y: 80, w: 1700, h: 140), bold: true),
+                       Element(frame: Frame(x: 110, y: 250, w: 1100, h: 720),
+                               content: .chart(ChartBox(kind: .bar, title: "Höjd över havet, meter", labels: ["Etna", "Hekla", "Vesuvius"],
+                                                        values: [3357, 1491, 1281], accent: gold, textColor: soft))),
+                       Element(frame: Frame(x: 1380, y: 330, w: 400, h: 400), content: .timer(TimerBox(seconds: 30, color: gold)))]
+        s3.notes = "Etna är högst i Europa. Starta klockan och låt publiken gissa vilken som haft flest utbrott."
+
+        var s4 = Slide(background: .solid(navy), transition: .zoom)
+        s4.elements = [Element(frame: Frame(x: 210, y: 190, w: 1500, h: 700),
+                               content: .poll(PollBox(question: "Vilken av dem är högst?", options: ["Etna", "Hekla", "Vesuvius"], correct: 0,
+                                                      accent: gold, textColor: soft)))]
+
+        var s5 = Slide(background: image("bg.png").map { .image(assetID: $0) } ?? Theme.all[0].background, transition: .fade)
+        s5.elements = [text("Tack!", 260, Frame(x: 110, y: 120, w: 1200, h: 330), bold: true),
+                       text("Har ni några frågor?", 70, Frame(x: 118, y: 450, w: 1200, h: 100), color: soft)]
+        return Deck(title: "Vulkaner", slides: [s1, s2, s3, s4, s5])
     }
 
     /// Startflaggan -seedpaste: urklippet ser ut som när man väljer "Kopiera" på en bild i Safari:
@@ -68,7 +100,7 @@ enum Demo {
         print("SEEDPASTE", type, data.count)
     }
 
-    /// Startflaggan -script: "spelar Ida" så att scenen har något att följa.
+    /// Startflaggan -script: "spelar Alex" så att scenen har något att följa.
     static func script(_ s: Session) async {
         func wait(_ t: Double) async { try? await Task.sleep(nanoseconds: UInt64(t * 1_000_000_000)) }
         await wait(8)
@@ -76,12 +108,12 @@ enum Demo {
         let slide = s.deck.slides[1].id
         s.setPresence(slide: slide)
         await wait(1.5)
-        let star = Element(frame: Frame(x: 1500, y: 120, w: 260, h: 260),
+        let star = Element(frame: Frame(x: 1660, y: 60, w: 170, h: 170),
                            content: .shape(ShapeBox(kind: .heart, fill: RGBA(hex: "FF6B81"))))
         s.perform(.upsertElement(slide: slide, star, at: nil))
         await wait(1.5)
-        var note = Element(frame: Frame(x: 120, y: 760, w: 1100, h: 120),
-                           content: .text(TextBox(text: "", style: TextStyle(font: .trebuchet, size: 64, color: RGBA(hex: "FFC312"), bold: true))))
+        var note = Element(frame: Frame(x: 110, y: 900, w: 1300, h: 110),
+                           content: .text(TextBox(text: "", style: TextStyle(font: .trebuchet, size: 56, color: RGBA(hex: "FF6B81"), bold: true))))
         s.select(note.id)
         s.perform(.upsertElement(slide: slide, note, at: nil))
         for ch in "Den största är Olympus Mons!" {
