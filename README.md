@@ -7,31 +7,67 @@ where you build, together and live. The Apple TV app is the stage: it shows the 
 happens and then the presentation itself. Everything runs on the home network, with no server
 and no accounts. The app's interface is in Swedish.
 
-## What it does
+## Features
 
-- **Build together.** Several iPhones and iPads edit the same presentation at once. One device
-  shares, the others join after the sharer says yes. The element you select is locked to you.
-- **Apple TV as the stage.** Tap *Dela* (Share) and the presentation appears on the TV. The TV
-  follows the slide where something is happening, glows edits in each person's colour and
-  shows a feed of who is doing what.
-- **Present.** Reveal elements on tap with effects (fade, pop, fly, spin, bounce, confetti),
-  make them vanish on tap, attach recorded sounds, and link elements to slides.
-  With an Apple TV connected the phone becomes a presenter display: next slide, clock, notes.
-- **Live extras.** Laser pointer, drawing on the slide, a sound board, and emoji reactions from
-  the audience that float up over the slide.
-- **Polls and quizzes.** A poll is an element on the slide. The audience scans a QR code and
-  votes in the browser on a small web page served by the sharing device.
-- **Content.** Text, shapes, photos, freehand drawings, paste from other apps, and GIF search
-  through GIPHY (always `rating=g`), and images generated from a description (via OpenRouter).
-- **Quiz as a game.** Named players, points for correct and fast answers, a podium, a buzzer,
-  a spinning wheel and questions from the audience.
-- **More building blocks.** Charts, countdown timers, short video clips, sticky notes for
-  collaborators, a shared whiteboard on the TV, and a practice mode that times each slide.
-- **AI help (optional).** Rewrite text, draft a presentation from a topic, generate images and
-  backgrounds. Background removal runs on the device.
-- **iCloud.** Presentations are backed up to each person's own iCloud; generated images go to a
-  shared family library.
-- **Export.** `.pptx` (opens in PowerPoint, Keynote and Google Slides) and PDF.
+**Build**
+- Text, shapes, photos, GIFs (search through GIPHY, always `rating=g`), freehand drawings,
+  charts (bar and pie), short video clips and countdown timers
+- 17 themes, 14 slide layouts and ready-made outlines: school project, book review, top 5,
+  quiz, about me
+- Image placeholders filled from the camera, the clipboard, your photos, AI or the family library
+- Paste images and text from other apps
+- Move, resize, rotate, reorder layers, duplicate, undo and redo
+- Speaker notes for every slide
+
+**Build together**
+- Several iPhones and iPads edit the same presentation at once on the home network, with no
+  server and no accounts
+- The sharer lets others in, and the element you select is locked to you
+- Whoever taps *Dela* (Share) last takes over the TV
+- Yellow sticky notes for collaborators that only show while building
+- A shared whiteboard where everyone draws on the TV at once
+- Give a copy of the presentation to someone who has joined
+
+**Apple TV**
+- A waiting screen with flying slides and a theme tune
+- A build view that follows the slide where something is happening and shows who is doing what
+- Presentation mode, controlled from the phone or the remote
+
+**Present**
+- The phone as a remote with notes, a clock and a hint about what the next tap does
+- Reveal elements on tap with eight effects, make them vanish on tap, and give them sounds
+- Motion on elements (wobble, pulse, float, spin) and six slide transitions
+- Clickable elements that jump to another slide
+- Laser pointer, pen and eight sound-board buttons
+- Practice mode that times each slide
+
+**The audience**
+- Votes through a QR code in the browser, with no app
+- Polls and quizzes with names, and points for correct and fast answers
+- Scoreboard, buzzer, spinning wheel and questions to the presenter
+- Emoji reactions that float up over the slide
+
+**AI (optional, needs your own key)**
+- Generate images from a description, with a style, a shape and an optional reference image
+- A magic wand that improves the description
+- Help with text: bullet points, shorter, spelling, headline suggestions
+- A draft of a whole presentation from a topic
+- AI-generated slide backgrounds
+- Remove the background from an image, entirely on the device
+
+**Save and share**
+- Export to PowerPoint, Keynote and Google Slides (`.pptx`) and to PDF
+- Backup of presentations to each person's own iCloud
+- A shared family library of generated images
+- Sharing survives the app being in the background for up to fifteen minutes
+
+**Under the hood**
+- Two apps (iOS/iPadOS and tvOS) sharing one Swift package, with no third-party dependencies
+- A hand-written writer for the PowerPoint format
+- 22 automated tests and 25 design rules in [`CONTRACT.md`](CONTRACT.md)
+
+Not yet confirmed on real devices: the two iCloud features, video clips, and the shared
+whiteboard across several phones.
 
 ## Build
 
